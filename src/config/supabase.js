@@ -20,6 +20,7 @@
   const ALLOWED_EMAILS = [
     "felgonzpu@gmail.com",
     "araosma@gmail.com",
+    "felipe@inversionesalun.cl",
   ];
 
   if (!window.supabase || typeof window.supabase.createClient !== "function") {
