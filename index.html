@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acceso · Inversiones Alun SpA</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --blue:#6E8169; --blue-dark:#3E4D5C; --gold:#C9BC72; --ink:#2C3640;
+    --bg:#F4F5F1; --surface:#fff; --border:#DEE2D8; --text:#2C3640; --text-muted:#6E7A70;
+    --green-dark:#27500A; --red-dark:#791F1F; --radius:14px;
+    --font-head:"Fraunces",Georgia,serif; --font-body:"Hanken Grotesk",system-ui,sans-serif;
+    --font-mono:"IBM Plex Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh;
+    display:flex;align-items:center;justify-content:center;padding:1.5rem}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    width:100%;max-width:400px;padding:2rem;box-shadow:0 10px 40px rgba(44,54,64,.08)}
+  .logo{width:52px;height:52px;border-radius:12px;background:var(--blue-dark);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:26px;margin-bottom:1rem}
+  h1{font-family:var(--font-head);font-size:22px;font-weight:600;margin-bottom:4px}
+  .sub{font-family:var(--font-mono);font-size:10px;letter-spacing:1.4px;text-transform:uppercase;
+    color:var(--text-muted);margin-bottom:1.5rem}
+  label{display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text-muted)}
+  input{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:10px;
+    font-family:var(--font-body);font-size:15px;margin-bottom:1rem;background:var(--bg)}
+  input:focus{outline:none;border-color:var(--blue)}
+  #codigo{font-family:var(--font-mono);letter-spacing:6px;text-align:center;font-size:20px}
+  button{width:100%;padding:12px;border:none;border-radius:10px;background:var(--blue-dark);
+    color:#fff;font-family:var(--font-body);font-size:15px;font-weight:600;cursor:pointer}
+  button:hover{background:#33414e} button:disabled{opacity:.55;cursor:default}
+  .msg{font-size:13px;margin-top:1rem;padding:10px 12px;border-radius:10px;display:none}
+  .msg.err{display:block;background:#FCEBEB;color:var(--red-dark)}
+  .msg.ok{display:block;background:#EAF3DE;color:var(--green-dark)}
+  .hint{font-size:12px;color:var(--text-muted);margin-top:1rem;line-height:1.5}
+  .link{background:none;color:var(--blue-dark);text-decoration:underline;width:auto;padding:0;
+    font-size:12px;font-weight:500;margin-top:.75rem}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo"><i class="ti ti-shield-lock"></i></div>
+    <h1>Inversiones Alun SpA</h1>
+    <p class="sub">Portal interno · Cumplimiento UAF</p>
+
+    <!-- Paso 1: pedir correo -->
+    <div id="paso-correo">
+      <label for="email">Correo autorizado</label>
+      <input id="email" type="email" autocomplete="email" placeholder="nombre@correo.cl" />
+      <button id="btn-enviar">Enviar código de verificación</button>
+      <p class="hint">Le enviaremos un código de 6 dígitos a su correo. Solo correos autorizados pueden ingresar.</p>
+    </div>
+
+    <!-- Paso 2: ingresar código -->
+    <div id="paso-codigo" class="hidden">
+      <label for="codigo">Código de verificación</label>
+      <input id="codigo" type="text" inputmode="numeric" maxlength="6" placeholder="······" />
+      <button id="btn-verificar">Ingresar al portal</button>
+      <button class="link" id="btn-volver">Usar otro correo</button>
+    </div>
+
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="src/config/supabase.js"></script>
+  <script src="src/controllers/authController.js"></script>
+  <script>
+    (function () {
+      const A = window.Alun;
+      const $ = (id) => document.getElementById(id);
+      const msg = $("msg");
+      const show = (t, kind) => { msg.textContent = t; msg.className = "msg " + kind; };
+      const clearMsg = () => { msg.className = "msg"; msg.textContent = ""; };
+
+      // Si ya hay sesión válida, ir directo al portal.
+      A.auth.sesion().then((s) => {
+        if (s && A.isAllowed(s.user && s.user.email)) window.location.replace("app.html");
+      });
+
+      $("btn-enviar").addEventListener("click", async () => {
+        clearMsg();
+        const email = $("email").value;
+        const btn = $("btn-enviar");
+        btn.disabled = true; btn.textContent = "Enviando…";
+        const r = await A.auth.enviarCodigo(email);
+        btn.disabled = false; btn.textContent = "Enviar código de verificación";
+        if (!r.ok) return show(r.error, "err");
+        $("paso-correo").classList.add("hidden");
+        $("paso-codigo").classList.remove("hidden");
+        show("Código enviado a " + email + ". Revise su correo.", "ok");
+        $("codigo").focus();
+      });
+
+      $("btn-verificar").addEventListener("click", async () => {
+        clearMsg();
+        const email = $("email").value;
+        const token = $("codigo").value;
+        const btn = $("btn-verificar");
+        btn.disabled = true; btn.textContent = "Verificando…";
+        const r = await A.auth.verificarCodigo(email, token);
+        btn.disabled = false; btn.textContent = "Ingresar al portal";
+        if (!r.ok) return show(r.error, "err");
+        window.location.replace("app.html");
+      });
+
+      $("btn-volver").addEventListener("click", () => {
+        clearMsg();
+        $("paso-codigo").classList.add("hidden");
+        $("paso-correo").classList.remove("hidden");
+      });
+
+      $("codigo").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-verificar").click(); });
+      $("email").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-enviar").click(); });
+    })();
+  </script>
+</body>
+</html>

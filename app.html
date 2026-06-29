@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inversiones Alun SpA — Sistema UAF Regla del Viaje</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<link rel="stylesheet" href="assets/css/styles.css">
+<script>/* Oculta el portal hasta validar sesion (evita parpadeo) */ document.documentElement.style.visibility="hidden";</script>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div id="logo-display"></div>
+      <div class="brand-name">Inversiones Alun SpA</div>
+      <div class="brand-sub">Sistema de Cumplimiento</div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Principal</div>
+      <div class="nav-item active" onclick="showSection('dashboard')"><i class="ti ti-layout-dashboard"></i> Inicio</div>
+      <div class="nav-item" onclick="showSection('clientes')"><i class="ti ti-users"></i> Clientes</div>
+      <div class="nav-item" onclick="showSection('nueva')"><i class="ti ti-plus-circle"></i> Nueva transferencia</div>
+      <div class="nav-item" onclick="showSection('registros')"><i class="ti ti-list-details"></i> Transferencias</div>
+      <div class="nav-item" onclick="showSection('facturas')"><i class="ti ti-file-invoice"></i> Facturas</div>
+      <div class="nav-item" onclick="showSection('compras')"><i class="ti ti-shopping-cart"></i> Compras y saldos</div>
+      <div class="nav-item" onclick="showSection('cuenta')"><i class="ti ti-wallet"></i> Abonos en cuenta</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Contabilidad</div>
+      <div class="nav-item" onclick="showSection('resultados')"><i class="ti ti-chart-line"></i> Resultados / Ganancias</div>
+      <div class="nav-item" onclick="showSection('libro')"><i class="ti ti-book"></i> Libro de caja</div>
+      <div class="nav-item" onclick="showSection('conciliacion')"><i class="ti ti-file-spreadsheet"></i> Conciliación bancaria</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Gestión</div>
+      <div class="nav-item" onclick="showSection('proveedores')"><i class="ti ti-building-store"></i> Proveedores</div>
+      <div class="nav-item" onclick="showSection('pendientes')"><i class="ti ti-clipboard-check"></i> Documentación <span id="nav-pend-badge" style="display:none;margin-left:auto;background:#E24B4A;color:#fff;font-size:10px;padding:1px 6px;border-radius:999px;">!</span></div>
+      <div class="nav-item" onclick="showSection('alertas')"><i class="ti ti-bell-ringing"></i> Alertas <span id="nav-alert-badge" style="display:none;margin-left:auto;background:#E24B4A;color:#fff;font-size:10px;padding:1px 6px;border-radius:999px;">!</span></div>
+      <div class="nav-item" onclick="showSection('config')"><i class="ti ti-settings"></i> Configuración</div>
+      <div class="nav-item" onclick="showSection('exportar')"><i class="ti ti-download"></i> Exportar / Importar</div>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="uaf-badge">
+        <strong>UAF Circular 62</strong>
+        <p>Regla del Viaje — Registros conservados por 5 años mínimo</p>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="topbar-title">Inicio</div>
+      <div class="topbar-actions">
+        <div class="alert-bell" onclick="showSection('pendientes')" title="Documentación pendiente">
+          <i class="ti ti-clipboard-check"></i>
+          <div class="alert-dot" id="pend-dot"></div>
+        </div>
+        <button class="btn btn-primary" onclick="showSection('nueva')"><i class="ti ti-plus"></i> Nueva transferencia</button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- ░░ DASHBOARD ░░ -->
+      <div id="sec-dashboard" class="section active">
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-label">Clientes inscritos</div><div class="stat-value" id="st-clientes">0</div><div class="stat-sub">fichas activas</div></div>
+          <div class="stat-card"><div class="stat-label">Transferencias</div><div class="stat-value" id="st-total">0</div><div class="stat-sub" id="st-mes-sub">en total</div></div>
+          <div class="stat-card" id="st-monto-card"><div class="stat-label">Monto mes (USD)</div><div class="stat-value" id="st-monto">$0</div><div class="stat-sub">acumulado</div></div>
+          <div class="stat-card"><div class="stat-label">Facturas</div><div class="stat-value" id="st-facturas">0</div><div class="stat-sub">registradas</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><i class="ti ti-traffic-lights"></i> Estado de documentación</div>
+          <p class="section-subtitle">Cada transferencia necesita dos documentos: comprobante (hash/SWIFT) y factura. El semáforo indica cuántos están completos.</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;">
+            <div class="stat-card" style="background:#EAF3DE;"><div class="stat-label" style="color:#27500A;"><span class="status-dot status-verde"></span> Completas</div><div class="stat-value" style="color:#27500A;" id="st-verde">0</div><div class="stat-sub" style="color:#3B6D11;">comprobante + factura</div></div>
+            <div class="stat-card" style="background:#FAEEDA;"><div class="stat-label" style="color:#633806;"><span class="status-dot status-amarillo"></span> Parciales</div><div class="stat-value" style="color:#633806;" id="st-amarillo">0</div><div class="stat-sub" style="color:#854F0B;">falta 1 documento</div></div>
+            <div class="stat-card" style="background:#FCEBEB;"><div class="stat-label" style="color:#791F1F;"><span class="status-dot status-rojo"></span> Sin documentos</div><div class="stat-value" style="color:#791F1F;" id="st-rojo">0</div><div class="stat-sub" style="color:#A32D2D;">faltan ambos</div></div>
+          </div>
+          <div class="actions" style="justify-content:flex-start;margin-top:12px;"><button class="btn btn-secondary" onclick="showSection('pendientes')"><i class="ti ti-arrow-right"></i> Ver transferencias pendientes</button></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><i class="ti ti-coin"></i> Ganancia de operaciones</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
+            <div class="stat-card"><div class="stat-label">Este mes</div><div class="stat-value" id="dash-gan-mes" style="font-size:18px;color:#27500A;">0</div></div>
+            <div class="stat-card"><div class="stat-label">Este año</div><div class="stat-value" id="dash-gan-anio" style="font-size:18px;color:#27500A;">0</div></div>
+            <div class="stat-card"><div class="stat-label">Total histórico</div><div class="stat-value" id="dash-gan-total" style="font-size:18px;">0</div></div>
+          </div>
+          <div class="actions" style="justify-content:flex-start;margin-top:12px;"><button class="btn btn-secondary" onclick="showSection('resultados')"><i class="ti ti-arrow-right"></i> Ver resultados por período</button></div>
+        </div>
+
+        <div id="alert-panel-dashboard" class="alert-panel">
+          <div class="alert-panel-title"><i class="ti ti-alert-triangle"></i> Alerta de umbral mensual</div>
+          <p id="alert-panel-msg"></p>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><i class="ti ti-clock"></i> Últimas transferencias</div>
+          <div id="dash-list"></div>
+        </div>
+      </div>
+
+      <!-- ░░ CLIENTES ░░ -->
+      <div id="sec-clientes" class="section">
+        <div class="alert-box alert-info"><i class="ti ti-info-circle"></i><div>Inscriba aquí a sus clientes (ordenantes). Luego, al crear una transferencia, podrá buscarlos y seleccionarlos. La ficha sigue los datos de conocimiento del cliente de la Circular 62.</div></div>
+
+        <div class="card" style="border-color:#9FC79A;background:#F2F6EF;">
+          <div class="card-title"><i class="ti ti-file-import"></i> Importar ficha desde PDF rellenable</div>
+          <p style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:10px;">Si el cliente le devolvió la <strong>Ficha KYC/KYB rellenable</strong> completada en el computador, impórtela aquí y el formulario de abajo se llenará solo. Luego revise, suba los documentos (cédulas, constitución, etc.) y presione <strong>Guardar ficha</strong>.</p>
+          <label class="mini-upload" onclick="document.getElementById('file-import-pdf').click()"><i class="ti ti-upload"></i> Seleccionar ficha PDF rellenada por el cliente</label>
+          <input type="file" id="file-import-pdf" accept=".pdf" style="display:none;">
+          <p style="font-size:11px;color:var(--text-hint);margin-top:8px;">Solo funciona con la ficha rellenable oficial. Una foto o escaneo de la ficha en papel no se puede importar; en ese caso, transcriba los datos manualmente en el formulario.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><i class="ti ti-user-plus"></i> Ficha de identificación y conocimiento de cliente (KYB / KYC) <span id="cliente-edit-tag" style="display:none;" class="badge badge-amber">editando</span></div>
+          <p class="section-subtitle">Conforme a Ley N° 19.913, Ley N° 20.393 y Circular N° 62 de la UAF. Los campos reflejan la ficha oficial de Inversiones Alun.</p>
+
+          <div class="form-grid">
+            <div class="form-group"><label>Fecha de llenado</label><input type="date" id="cl-fecha-llenado"></div>
+            <div class="form-group"><label>Tipo de ficha</label><select id="cl-tipo-ficha"><option value="Alta">Alta de cliente (nueva relación)</option><option value="Actualización">Actualización anual / cambio relevante</option></select></div>
+            <div class="form-group"><label>Nivel de Debida Diligencia</label><select id="cl-ddc"><option value="Simplificada">Simplificada</option><option value="Normal">Normal</option><option value="Reforzada">Reforzada</option></select></div>
+          </div>
+
+          <div class="form-section-label">Sección 1 · Tipo e identificación</div>
+          <div class="radio-row">
+            <div class="radio-card" id="rc-natural" onclick="setTipoPersona('natural')"><i class="ti ti-user"></i> Persona natural</div>
+            <div class="radio-card active" id="rc-juridica" onclick="setTipoPersona('juridica')"><i class="ti ti-building"></i> Persona jurídica (empresa)</div>
+          </div>
+          <div class="form-grid">
+            <div class="form-group"><label id="lbl-cl-nombre">Razón social <span class="required">*</span></label><input type="text" id="cl-nombre" placeholder="Razón social"></div>
+            <div class="form-group"><label id="lbl-cl-rut">RUT comercial <span class="required">*</span></label><input type="text" id="cl-rut" placeholder="77.123.456-7"></div>
+            <div class="form-group jur"><label>Tipo de sociedad</label><input type="text" id="cl-tiposociedad" placeholder="SpA, Ltda., S.A."></div>
+            <div class="form-group jur"><label>Fecha de constitución</label><input type="date" id="cl-fconstitucion"></div>
+            <div class="form-group nat" style="display:none;"><label>Fecha de nacimiento</label><input type="date" id="cl-nacimiento"></div>
+            <div class="form-group nat" style="display:none;"><label>Nacionalidad</label><input type="text" id="cl-nacionalidad" placeholder="Chilena"></div>
+            <div class="form-group"><label id="lbl-cl-giro">Giro comercial principal</label><input type="text" id="cl-giro" placeholder="Giro / actividad"></div>
+          </div>
+          <div class="form-section-label">Contacto y domicilio</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Dirección comercial</label><input type="text" id="cl-direccion" placeholder="Calle, número, oficina"></div>
+            <div class="form-group"><label>Comuna</label><input type="text" id="cl-comuna" placeholder="Comuna"></div>
+            <div class="form-group"><label>Región / Ciudad</label><input type="text" id="cl-region" placeholder="Región o ciudad"></div>
+            <div class="form-group"><label>País</label><input type="text" id="cl-pais" placeholder="Chile" value="Chile"></div>
+            <div class="form-group"><label>Teléfono comercial</label><input type="tel" id="cl-telefono" placeholder="+56 ..."></div>
+            <div class="form-group"><label>Sitio web (opcional)</label><input type="text" id="cl-web" placeholder="www..."></div>
+            <div class="form-group"><label>Correo de contacto</label><input type="email" id="cl-email" placeholder="contacto@empresa.cl"></div>
+          </div>
+
+          <div class="jur-block">
+            <div class="form-section-label">Sección 2 · Representante legal</div>
+            <div class="form-grid">
+              <div class="form-group"><label>Nombre completo</label><input type="text" id="rl-nombre" placeholder="Nombre y apellidos"></div>
+              <div class="form-group"><label>RUT / Pasaporte</label><input type="text" id="rl-rut" placeholder="12.345.678-9"></div>
+              <div class="form-group"><label>Nacionalidad</label><input type="text" id="rl-nac" placeholder="Chilena"></div>
+              <div class="form-group"><label>Profesión / oficio</label><input type="text" id="rl-profesion" placeholder="Profesión"></div>
+              <div class="form-group"><label>Domicilio particular</label><input type="text" id="rl-domicilio" placeholder="Dirección"></div>
+              <div class="form-group"><label>Correo electrónico</label><input type="email" id="rl-correo" placeholder="correo@..."></div>
+              <div class="form-group"><label>Teléfono de contacto</label><input type="tel" id="rl-telefono" placeholder="+56 9 ..."></div>
+            </div>
+            <div class="doc-bucket" style="margin-top:8px;">
+              <div class="doc-bucket-head"><i class="ti ti-id"></i> Cédula de identidad del representante legal</div>
+              <label class="mini-upload" onclick="document.getElementById('file-cedulaRL').click()"><i class="ti ti-upload"></i> Subir cédula (frente y reverso en un PDF, o imagen)</label>
+              <div id="d-cedulaRL" style="margin-top:8px;"></div>
+            </div>
+
+            <div class="form-section-label">Sección 3 · Beneficiarios finales (10% o más — solo personas naturales)</div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Personas naturales que posean o controlen, directa o indirectamente, el 10% o más del capital o de los votos, o el control efectivo. Para cada uno puede guardar su cédula y su KYC (CBPay).</p>
+            <div id="bf-list"></div>
+            <button class="btn btn-secondary btn-sm" onclick="agregarBeneficiario()"><i class="ti ti-user-plus"></i> Agregar beneficiario final</button>
+          </div>
+
+          <div class="form-section-label">Sección 4 · Persona Expuesta Políticamente (PEP)</div>
+          <div class="form-grid">
+            <div class="form-group"><label>¿El RL y/o beneficiarios califican como PEP?</label>
+              <select id="cl-pep" onchange="togglePep()"><option value="no">No califican como PEP</option><option value="si">Sí califican como PEP</option></select>
+            </div>
+            <div class="form-group pep-box" style="display:none;"><label>Nombre del PEP</label><input type="text" id="cl-pep-nombre" placeholder="Nombre"></div>
+            <div class="form-group pep-box" style="display:none;"><label>Cargo / función</label><input type="text" id="cl-pep-cargo" placeholder="Cargo o función pública"></div>
+          </div>
+
+          <div class="form-section-label">Sección 5 · Perfil transaccional y comercial</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Propósito de las transferencias</label><input type="text" id="pf-proposito" placeholder="Ej: pago a proveedores, remesas"></div>
+            <div class="form-group"><label>Países de destino más frecuentes</label><input type="text" id="pf-paises" placeholder="Ej: Perú, EE.UU."></div>
+            <div class="form-group"><label>Volumen mensual estimado (USD)</label><input type="number" id="pf-volumen" min="0" placeholder="0"></div>
+            <div class="form-group"><label>Monto promedio por operación (USD)</label><input type="number" id="pf-promedio" min="0" placeholder="0"></div>
+            <div class="form-group"><label>Frecuencia estimada</label><input type="text" id="pf-frecuencia" placeholder="Ej: semanal, mensual"></div>
+            <div class="form-group"><label>N° de operaciones / mes</label><input type="number" id="pf-nops" min="0" placeholder="0"></div>
+            <div class="form-group"><label>Origen de los fondos</label><input type="text" id="cl-origen" placeholder="Ej: ventas, ahorros, capital"></div>
+          </div>
+
+          <div class="jur-block">
+            <div class="form-section-label">Sección 6 · Beneficiarios / destinatarios habituales</div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:8px;cursor:pointer;"><input type="checkbox" id="hb-ord-mismo" style="width:16px;height:16px;"> El ordenante es el mismo cliente de las secciones 1 y 2</label>
+            <div id="dest-list"></div>
+            <button class="btn btn-secondary btn-sm" onclick="agregarDestinatario()"><i class="ti ti-plus"></i> Agregar destinatario habitual</button>
+          </div>
+
+          <div class="form-section-label">Sección 7 · Documentos de respaldo (verificación DDC)</div>
+          <div class="jur-block">
+            <div class="doc-bucket"><div class="doc-bucket-head"><i class="ti ti-file-certificate"></i> Constitución de la sociedad</div><label class="mini-upload" onclick="document.getElementById('file-constitucion').click()"><i class="ti ti-upload"></i> Subir</label><div id="d-constitucion" style="margin-top:8px;"></div></div>
+            <div class="doc-bucket"><div class="doc-bucket-head"><i class="ti ti-files"></i> Modificaciones de la sociedad <span style="font-size:10px;color:var(--text-hint);font-weight:400;">(puede subir varias)</span></div><label class="mini-upload" onclick="document.getElementById('file-modificaciones').click()"><i class="ti ti-upload"></i> Subir modificación(es)</label><div id="d-modificaciones" style="margin-top:8px;"></div></div>
+            <div class="doc-bucket"><div class="doc-bucket-head"><i class="ti ti-certificate"></i> Certificado de vigencia (sociedad / poderes)</div><label class="mini-upload" onclick="document.getElementById('file-vigencia').click()"><i class="ti ti-upload"></i> Subir</label><div id="d-vigencia" style="margin-top:8px;"></div></div>
+            <div class="doc-bucket"><div class="doc-bucket-head"><i class="ti ti-file-text"></i> e-RUT / inicio de actividades SII</div><label class="mini-upload" onclick="document.getElementById('file-erut').click()"><i class="ti ti-upload"></i> Subir</label><div id="d-erut" style="margin-top:8px;"></div></div>
+            <div class="doc-bucket"><div class="doc-bucket-head"><i class="ti ti-building-bank"></i> KYB de la empresa</div><label class="mini-upload" onclick="document.getElementById('file-kyb').click()"><i class="ti ti-upload"></i> Subir</label><div id="d-kyb" style="margin-top:8px;"></div></div>
+          </div>
+          <div class="nat-block" style="display:none;">
+            <div class="doc-bucket"><div class="doc-bucket-head"><i class="ti ti-id"></i> Cédula de identidad del titular</div><label class="mini-upload" onclick="document.getElementById('file-cedula-titular').click()"><i class="ti ti-upload"></i> Subir</label><div id="d-cedulaTitular" style="margin-top:8px;"></div></div>
+          </div>
+          <div class="doc-bucket"><div class="doc-bucket-head"><i class="ti ti-file-check"></i> Ficha KYC/KYB firmada por el cliente</div><label class="mini-upload" onclick="document.getElementById('file-ficha-firmada').click()"><i class="ti ti-upload"></i> Subir ficha firmada (PDF)</label><div id="d-fichaFirmada" style="margin-top:8px;"></div></div>
+          <div class="doc-bucket"><div class="doc-bucket-head"><i class="ti ti-folder"></i> Documentos adicionales varios <span style="font-size:10px;color:var(--text-hint);font-weight:400;">(opcional, varios)</span></div><label class="mini-upload" onclick="document.getElementById('file-adicionales').click()"><i class="ti ti-upload"></i> Subir adjunto(s)</label><div id="d-adicionales" style="margin-top:8px;"></div></div>
+
+          <div class="form-section-label">Sección 9 · Uso interno (Inversiones Alun)</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Fecha de recepción</label><input type="date" id="ui-recepcion"></div>
+            <div class="form-group"><label>Próxima revisión (anual)</label><input type="date" id="ui-proxima"></div>
+            <div class="form-group"><label>Proceso KYC completado</label><select id="ui-cbpay"><option value="no">No</option><option value="si">Sí</option></select></div>
+            <div class="form-group"><label>Cruce de listas (ONU/OFAC/GAFI)</label><select id="ui-cruce"><option value="no">No</option><option value="si">Sí</option></select></div>
+            <div class="form-group"><label>Resultado del cruce de listas</label><input type="text" id="ui-listas" placeholder="Sin coincidencias / con observaciones"></div>
+            <div class="form-group"><label>Nivel de riesgo</label><select id="ui-riesgo"><option value="">—</option><option value="Bajo">Bajo</option><option value="Medio">Medio</option><option value="Alto">Alto</option></select></div>
+          </div>
+          <div class="form-group"><label>Fundamento del nivel de riesgo</label><textarea id="ui-riesgo-fund" placeholder="Justificación del nivel asignado..."></textarea></div>
+          <div class="form-group" style="margin-top:10px;"><label>Observaciones del EPD</label><textarea id="ui-obs" placeholder="Observaciones internas..."></textarea></div>
+
+          <div class="divider"></div>
+          <div class="actions">
+            <button class="btn btn-secondary" onclick="limpiarCliente()"><i class="ti ti-refresh"></i> Limpiar</button>
+            <button class="btn btn-primary" onclick="guardarCliente()"><i class="ti ti-user-check"></i> Guardar ficha de cliente</button>
+          </div>
+
+          <input type="file" id="file-cedulaRL" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic">
+          <input type="file" id="file-constitucion" accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.doc">
+          <input type="file" id="file-modificaciones" accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.doc" multiple>
+          <input type="file" id="file-vigencia" accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.doc">
+          <input type="file" id="file-erut" accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.doc">
+          <input type="file" id="file-kyb" accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.doc">
+          <input type="file" id="file-cedula-titular" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic">
+          <input type="file" id="file-ficha-firmada" accept=".pdf,.jpg,.jpeg,.png,.webp">
+          <input type="file" id="file-adicionales" accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.doc" multiple>
+          <input type="file" id="file-bf-cedula" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic">
+          <input type="file" id="file-bf-kyc" accept=".pdf,.jpg,.jpeg,.png,.webp,.docx,.doc">
+        </div>
+
+
+        <div class="card" style="margin-bottom:1rem;">
+          <div class="search-bar">
+            <input type="text" id="cl-search" placeholder="Buscar cliente por nombre o RUT..." oninput="renderClientes()">
+            <span id="cl-count" style="font-size:12px;color:var(--text-muted);white-space:nowrap;"></span>
+          </div>
+        </div>
+        <div class="card"><div id="clientes-list"></div></div>
+      </div>
+
+      <!-- ░░ NUEVA TRANSFERENCIA ░░ -->
+      <div id="sec-nueva" class="section">
+        <div class="alert-box alert-warning"><i class="ti ti-alert-triangle"></i><div>Seleccione un cliente y complete los datos. Puede <strong>guardar parcialmente</strong> aunque falten los documentos; el sistema marcará el estado en el semáforo.</div></div>
+
+        <div class="card">
+          <div class="card-title"><i class="ti ti-user-search"></i> Cliente (ordenante) <span class="required">*</span></div>
+          <div id="cliente-selector">
+            <input type="text" id="tx-cliente-search" placeholder="Escriba nombre o RUT del cliente..." oninput="buscarClienteTx()" autocomplete="off">
+            <div id="tx-cliente-results"></div>
+            <p style="font-size:12px;color:var(--text-muted);margin-top:8px;">¿El cliente no está inscrito? <a href="#" onclick="irAClientes();return false;" style="color:var(--blue);">Inscríbalo primero en Clientes</a>.</p>
+          </div>
+          <div id="cliente-selected" style="display:none;"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><i class="ti ti-shopping-cart"></i> Compra asociada</div>
+          <p class="section-subtitle">La transferencia descuenta saldo de una compra. Solo se puede ejecutar si la compra está pagada por completo.</p>
+          <div class="form-group"><label>Compra</label><select id="tx-compra" onchange="onSelectCompraTx()"><option value="">Seleccione primero el cliente</option></select></div>
+          <div id="tx-compra-info" style="margin-top:8px;"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><i class="ti ti-user-check"></i> Datos del beneficiario <span class="required">*</span></div>
+          <div class="form-grid">
+            <div class="form-group"><label>Nombre completo <span class="required">*</span></label><input type="text" id="ben-nombre" placeholder="Nombre y apellidos"></div>
+            <div class="form-group"><label>Documento identidad <span class="required">*</span></label><input type="text" id="ben-doc" placeholder="DNI, Pasaporte, etc."></div>
+            <div class="form-group"><label>País destino <span class="required">*</span></label><input type="text" id="ben-pais" placeholder="País"></div>
+            <div class="form-group"><label>Ciudad destino</label><input type="text" id="ben-ciudad" placeholder="Ciudad"></div>
+            <div class="form-group"><label>Banco / Entidad receptora</label><input type="text" id="ben-banco" placeholder="Nombre del banco"></div>
+            <div class="form-group"><label>N° cuenta / IBAN / CLABE</label><input type="text" id="ben-cuenta" placeholder="Número de cuenta"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><i class="ti ti-cash"></i> Datos de la transferencia <span class="required">*</span></div>
+          <div class="form-grid">
+            <div class="form-group"><label>Fecha de operación <span class="required">*</span></label><input type="date" id="tx-fecha"></div>
+            <div class="form-group"><label>Monto enviado <span class="required">*</span></label><input type="number" id="tx-monto" placeholder="0.00" min="0" step="0.01"></div>
+            <div class="form-group"><label>Moneda origen <span class="required">*</span></label>
+              <select id="tx-moneda">
+                <option value="CLP">CLP — Peso chileno</option><option value="USD">USD — Dólar</option><option value="USDT">USDT — Tether</option><option value="USDC">USDC — USD Coin</option><option value="EUR">EUR — Euro</option><option value="BRL">BRL — Real</option><option value="ARS">ARS — Peso arg.</option><option value="PEN">PEN — Sol peruano</option><option value="MXN">MXN — Peso mex.</option><option value="COP">COP — Peso col.</option><option value="BOB">BOB — Boliviano</option><option value="VES">VES — Bolívar</option><option value="OTRO">Otra</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Monto recibido en destino</label><input type="number" id="tx-monto-dest" placeholder="0.00" min="0" step="0.01"></div>
+            <div class="form-group"><label>Moneda destino</label>
+              <select id="tx-moneda-dest">
+                <option value="USD">USD — Dólar</option><option value="USDT">USDT — Tether</option><option value="USDC">USDC — USD Coin</option><option value="EUR">EUR — Euro</option><option value="CLP">CLP — Peso chileno</option><option value="BRL">BRL — Real</option><option value="ARS">ARS — Peso arg.</option><option value="PEN">PEN — Sol peruano</option><option value="MXN">MXN — Peso mex.</option><option value="COP">COP — Peso col.</option><option value="OTRO">Otra</option>
+              </select>
+            </div>
+            <div class="form-group"><label>N° operación / referencia</label><input type="text" id="tx-ref" placeholder="Código interno"></div>
+            <div class="form-group"><label>Canal utilizado</label>
+              <select id="tx-canal"><option value="">Seleccionar...</option><option value="Sucursal">Sucursal presencial</option><option value="Plataforma digital">Plataforma digital</option><option value="Agente">Agente autorizado</option><option value="App móvil">App móvil</option></select>
+            </div>
+            <div class="form-group"><label>Propósito <span class="required">*</span></label>
+              <select id="tx-prop"><option value="">Seleccionar...</option><option value="Apoyo familiar / remesa">Apoyo familiar / remesa</option><option value="Pago de servicios">Pago de servicios</option><option value="Pago comercial">Pago comercial</option><option value="Compra de divisas">Compra de divisas</option><option value="Ahorro / inversión">Ahorro / inversión</option><option value="Donación">Donación</option><option value="Otro">Otro</option></select>
+            </div>
+            <div class="form-group"><label>Relación ordenante–beneficiario</label>
+              <select id="tx-rel"><option value="">Seleccionar...</option><option value="Mismo titular">Mismo titular</option><option value="Familiar">Familiar</option><option value="Conocido / amigo">Conocido / amigo</option><option value="Proveedor / comercio">Proveedor / comercio</option><option value="Sin relación conocida">Sin relación conocida</option></select>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="form-group"><label>Observaciones adicionales</label><textarea id="tx-obs" placeholder="Información relevante sobre la operación..."></textarea></div>
+        </div>
+
+        <!-- DOCUMENTOS -->
+        <div class="card">
+          <div class="card-title"><i class="ti ti-paperclip"></i> Documentos de la operación</div>
+
+          <div class="doc-bucket req" id="bucket-comprobante">
+            <div class="doc-bucket-head"><i class="ti ti-receipt"></i> Comprobante de la transacción (hash / SWIFT) <span class="req-tag" id="tag-comprobante">obligatorio</span></div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Captura o PDF del hash de blockchain, mensaje SWIFT o comprobante bancario.</p>
+            <label class="mini-upload" onclick="document.getElementById('file-comprobante').click()"><i class="ti ti-upload"></i> Subir comprobante</label>
+            <input type="file" id="file-comprobante" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx,.doc">
+            <div id="list-comprobante" style="margin-top:8px;"></div>
+          </div>
+
+          <div class="doc-bucket req" id="bucket-factura">
+            <div class="doc-bucket-head"><i class="ti ti-file-invoice"></i> Factura asociada <span class="req-tag" id="tag-factura">obligatorio</span></div>
+            <div class="radio-row">
+              <div class="radio-card active" id="rcf-individual" onclick="setFacturaModo('individual')"><i class="ti ti-file"></i> Factura propia de esta transferencia</div>
+              <div class="radio-card" id="rcf-agrupada" onclick="setFacturaModo('agrupada')"><i class="ti ti-files"></i> Agrupar bajo una factura común</div>
+            </div>
+
+            <div id="factura-individual-box">
+              <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Suba la factura correspondiente a esta transferencia.</p>
+              <label class="mini-upload" onclick="document.getElementById('file-factura').click()"><i class="ti ti-upload"></i> Subir factura</label>
+              <input type="file" id="file-factura" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx,.doc">
+              <div id="list-factura" style="margin-top:8px;"></div>
+            </div>
+
+            <div id="factura-agrupada-box" style="display:none;">
+              <div class="alert-box alert-info" style="margin-bottom:10px;"><i class="ti ti-info-circle"></i><div>Use esto cuando el cliente hace cierres o compras parciales de divisas: varias transferencias quedan bajo una sola factura.</div></div>
+              <div class="form-group" style="margin-bottom:10px;"><label>Factura común</label>
+                <select id="tx-factura-grupo" onchange="onSelectGrupoFactura()"><option value="">— Seleccione o cree una factura —</option></select>
+              </div>
+              <div id="nueva-factura-box" style="display:none;border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:12px;">
+                <div class="form-grid">
+                  <div class="form-group"><label>N° de factura <span class="required">*</span></label><input type="text" id="nf-numero" placeholder="Ej: F-001234"></div>
+                  <div class="form-group"><label>Fecha de factura</label><input type="date" id="nf-fecha"></div>
+                </div>
+                <label class="mini-upload" style="margin-top:8px;" onclick="document.getElementById('file-nf').click()"><i class="ti ti-upload"></i> Subir documento de factura</label>
+                <input type="file" id="file-nf" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx,.doc">
+                <div id="list-nf" style="margin-top:8px;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="doc-bucket" id="bucket-otros">
+            <div class="doc-bucket-head"><i class="ti ti-folder"></i> Otros adjuntos de respaldo <span style="font-size:10px;color:var(--text-hint);font-weight:400;">(opcional)</span></div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Cualquier documento adicional para justificar la transacción (contratos, correos, fotos de cédula, etc.).</p>
+            <label class="mini-upload" onclick="document.getElementById('file-otros').click()"><i class="ti ti-upload"></i> Subir adjunto(s)</label>
+            <input type="file" id="file-otros" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx,.doc" multiple>
+            <div id="list-otros" style="margin-top:8px;"></div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-secondary" onclick="limpiarForm()"><i class="ti ti-refresh"></i> Limpiar</button>
+          <button class="btn btn-primary" onclick="guardarRegistro()"><i class="ti ti-device-floppy"></i> Guardar transferencia</button>
+        </div>
+      </div>
+
+      <!-- ░░ TRANSFERENCIAS ░░ -->
+      <div id="sec-registros" class="section">
+        <div class="card" style="margin-bottom:1rem;">
+          <div class="search-bar">
+            <input type="text" id="search-q" placeholder="Buscar por cliente, RUT, país, referencia..." oninput="filtrar()">
+            <select id="filter-estado" onchange="filtrar()">
+              <option value="">Todos los estados</option>
+              <option value="verde">🟢 Completas</option>
+              <option value="amarillo">🟡 Parciales</option>
+              <option value="rojo">🔴 Sin documentos</option>
+            </select>
+            <select id="filter-mes" onchange="filtrar()">
+              <option value="">Todos los meses</option>
+              <option value="01">Enero</option><option value="02">Febrero</option><option value="03">Marzo</option><option value="04">Abril</option><option value="05">Mayo</option><option value="06">Junio</option><option value="07">Julio</option><option value="08">Agosto</option><option value="09">Septiembre</option><option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+            </select>
+            <span id="result-count" style="font-size:12px;color:var(--text-muted);white-space:nowrap;"></span>
+          </div>
+        </div>
+        <div class="card"><div id="registros-list"></div></div>
+      </div>
+
+      <!-- ░░ FACTURAS ░░ -->
+      <div id="sec-facturas" class="section">
+        <div class="alert-box alert-info"><i class="ti ti-info-circle"></i><div>Aquí ve las facturas que agrupan varias transferencias. Puede crear una factura común, subir su documento y revisar qué transferencias tiene asociadas.</div></div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-file-plus"></i> Nueva factura común</div>
+          <div class="form-grid">
+            <div class="form-group"><label>N° de factura <span class="required">*</span></label><input type="text" id="fac-numero" placeholder="Ej: F-001234"></div>
+            <div class="form-group"><label>Fecha</label><input type="date" id="fac-fecha"></div>
+            <div class="form-group"><label>Cliente asociado</label><select id="fac-cliente"></select></div>
+          </div>
+          <label class="mini-upload" style="margin-top:8px;" onclick="document.getElementById('file-fac').click()"><i class="ti ti-upload"></i> Subir documento de factura</label>
+          <input type="file" id="file-fac" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx,.doc">
+          <div id="list-fac" style="margin-top:8px;"></div>
+          <div class="actions"><button class="btn btn-primary" onclick="guardarFacturaManual()"><i class="ti ti-check"></i> Crear factura</button></div>
+        </div>
+        <div class="card"><div id="facturas-list"></div></div>
+      </div>
+
+      <!-- ░░ COMPRAS Y SALDOS ░░ -->
+      <div id="sec-compras" class="section">
+        <div class="alert-box alert-info"><i class="ti ti-info-circle"></i><div>Registre las compras de divisas de cada cliente y sus abonos. Las transferencias descuentan saldo de una compra y solo pueden ejecutarse cuando la compra está pagada por completo.</div></div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-shopping-cart-plus"></i> Nueva operación</div>
+          <div class="form-section-label">Tipo de operación</div>
+          <div class="radio-row">
+            <div class="radio-card active" id="op-rc-compra" onclick="setTipoOperacion('compra_div')"><i class="ti ti-arrow-down-circle"></i> Cliente compra divisa (paga CLP)</div>
+            <div class="radio-card" id="op-rc-venta" onclick="setTipoOperacion('venta_div')"><i class="ti ti-arrow-up-circle"></i> Cliente vende divisa (recibe CLP)</div>
+            <div class="radio-card" id="op-rc-liq" onclick="setTipoOperacion('liq')"><i class="ti ti-arrows-exchange"></i> Liquidación / conversión</div>
+          </div>
+          <div class="form-grid">
+            <div class="form-group"><label>Cliente <span class="required">*</span></label><select id="co-cliente"></select></div>
+            <div class="form-group"><label>Fecha</label><input type="date" id="co-fecha"></div>
+            <div class="form-group"><label>Valuta</label><select id="co-valuta"><option value="0">0 horas (contado inmediato)</option><option value="24">24 horas</option><option value="48">48 horas</option></select></div>
+          </div>
+
+          <div class="op-compra op-block">
+            <div class="form-section-label">Compra de divisa</div>
+            <div class="form-grid">
+              <div class="form-group"><label>Divisa que compra</label><select id="cd-moneda" onchange="recalcOperacion()"><option value="USDT">USDT — Tether</option><option value="USDC">USDC — USD Coin</option><option value="USD">USD — Dólar</option><option value="EUR">EUR — Euro</option><option value="CLP">CLP — Peso chileno</option><option value="BRL">BRL — Real</option><option value="ARS">ARS — Peso arg.</option><option value="PEN">PEN — Sol peruano</option><option value="MXN">MXN — Peso mex.</option><option value="COP">COP — Peso col.</option><option value="BOB">BOB — Boliviano</option><option value="VES">VES — Bolívar</option><option value="GBP">GBP — Libra</option><option value="OTRO">Otra</option></select></div>
+              <div class="form-group"><label>TC al cliente (CLP por unidad)</label><input type="number" id="cd-tccli" step="0.0001" oninput="recalcOperacion()" placeholder="Ej: 950"></div>
+              <div class="form-group"><label>Monto que compra (divisa)</label><input type="number" id="cd-monto" step="0.01" oninput="recalcOperacion('monto')" placeholder="Ej: 10000"></div>
+              <div class="form-group"><label>CLP a abonar</label><input type="number" id="cd-clp" step="0.01" oninput="recalcOperacion('clp')" placeholder="o ingrese CLP"></div>
+              <div class="form-group"><label>TC del proveedor (banco/corredora)</label><input type="number" id="cd-tcprov" step="0.0001" oninput="recalcOperacion()" placeholder="Ej: 940"></div>
+              <div class="form-group"><label>Contraparte (banco/corredora)</label><select id="cd-contra" class="sel-proveedor"></select></div>
+            </div>
+          </div>
+
+          <div class="op-venta op-block" style="display:none;">
+            <div class="form-section-label">Venta de divisa</div>
+            <div class="form-grid">
+              <div class="form-group"><label>Divisa que vende</label><select id="vd-moneda" onchange="recalcOperacion()"><option value="USDT">USDT — Tether</option><option value="USDC">USDC — USD Coin</option><option value="USD">USD — Dólar</option><option value="EUR">EUR — Euro</option><option value="CLP">CLP — Peso chileno</option><option value="BRL">BRL — Real</option><option value="ARS">ARS — Peso arg.</option><option value="PEN">PEN — Sol peruano</option><option value="MXN">MXN — Peso mex.</option><option value="COP">COP — Peso col.</option><option value="BOB">BOB — Boliviano</option><option value="VES">VES — Bolívar</option><option value="GBP">GBP — Libra</option><option value="OTRO">Otra</option></select></div>
+              <div class="form-group"><label>TC al cliente (CLP por unidad)</label><input type="number" id="vd-tccli" step="0.0001" oninput="recalcOperacion()" placeholder="Ej: 940"></div>
+              <div class="form-group"><label>Monto que vende (divisa)</label><input type="number" id="vd-monto" step="0.01" oninput="recalcOperacion('monto')" placeholder="Ej: 10000"></div>
+              <div class="form-group"><label>CLP a recibir</label><input type="number" id="vd-clp" step="0.01" oninput="recalcOperacion('clp')" placeholder="o ingrese CLP"></div>
+              <div class="form-group"><label>TC del proveedor (banco/corredora)</label><input type="number" id="vd-tcprov" step="0.0001" oninput="recalcOperacion()" placeholder="Ej: 950"></div>
+              <div class="form-group"><label>Contraparte (banco/corredora)</label><select id="vd-contra" class="sel-proveedor"></select></div>
+            </div>
+          </div>
+
+          <div class="op-liq op-block" style="display:none;">
+            <div class="form-section-label">Liquidación / conversión (entre dos divisas)</div>
+            <div class="form-grid">
+              <div class="form-group"><label>Convierte de (origen)</label><select id="lq-origen" onchange="recalcOperacion()"><option value="USDT">USDT — Tether</option><option value="USDC">USDC — USD Coin</option><option value="USD">USD — Dólar</option><option value="EUR">EUR — Euro</option><option value="CLP">CLP — Peso chileno</option><option value="BRL">BRL — Real</option><option value="ARS">ARS — Peso arg.</option><option value="PEN">PEN — Sol peruano</option><option value="MXN">MXN — Peso mex.</option><option value="COP">COP — Peso col.</option><option value="BOB">BOB — Boliviano</option><option value="VES">VES — Bolívar</option><option value="GBP">GBP — Libra</option><option value="OTRO">Otra</option></select></div>
+              <div class="form-group"><label>Convierte a (destino)</label><select id="lq-destino" onchange="recalcOperacion()"><option value="USDT">USDT — Tether</option><option value="USDC">USDC — USD Coin</option><option value="USD">USD — Dólar</option><option value="EUR">EUR — Euro</option><option value="CLP">CLP — Peso chileno</option><option value="BRL">BRL — Real</option><option value="ARS">ARS — Peso arg.</option><option value="PEN">PEN — Sol peruano</option><option value="MXN">MXN — Peso mex.</option><option value="COP">COP — Peso col.</option><option value="BOB">BOB — Boliviano</option><option value="VES">VES — Bolívar</option><option value="GBP">GBP — Libra</option><option value="OTRO">Otra</option></select></div>
+              <div class="form-group"><label>Monto a liquidar (origen)</label><input type="number" id="lq-monto" step="0.01" oninput="recalcOperacion('monto')" placeholder="Ej: 10000"></div>
+              <div class="form-group"><label>Comisión transformación (%)</label><input type="number" id="lq-com" step="0.01" value="0" oninput="recalcOperacion('com')" placeholder="Ej: 1.5"></div>
+              <div class="form-group"><label>Monto a entregar (destino)</label><input type="number" id="lq-destmonto" step="0.01" oninput="recalcOperacion('dest')" placeholder="Ej: 9850"></div>
+            </div>
+            <div class="form-section-label">Liquidación con proveedor (para la ganancia)</div>
+            <div class="form-grid">
+              <div class="form-group"><label>TC venta del origen al banco (CLP/unidad)</label><input type="number" id="lq-tcventa" step="0.0001" oninput="recalcOperacion()" placeholder="CLP por unidad origen"></div>
+              <div class="form-group"><label>Contraparte venta</label><select id="lq-contraventa" class="sel-proveedor"></select></div>
+              <div class="form-group"><label>TC compra del destino (CLP/unidad)</label><input type="number" id="lq-tccompra" step="0.0001" oninput="recalcOperacion()" placeholder="CLP por unidad destino"></div>
+              <div class="form-group"><label>CLP pagado por el destino</label><input type="number" id="lq-clppago" step="0.01" readonly placeholder="se calcula automáticamente" style="background:var(--bg);"></div>
+              <div class="form-group"><label>Contraparte compra</label><select id="lq-contracompra" class="sel-proveedor"></select></div>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top:8px;"><label>Observaciones</label><input type="text" id="co-obs" placeholder="Opcional"></div>
+          <div class="alert-box alert-success" style="margin-top:10px;"><i class="ti ti-calculator"></i><div id="op-resumen">Complete los datos para ver el cálculo y la ganancia.</div></div>
+          <div class="actions"><button class="btn btn-primary" onclick="crearCompra()"><i class="ti ti-check"></i> Crear operación</button></div>
+          <input type="file" id="file-abono" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic" style="display:none;">
+        </div>
+
+        <div class="card"><div class="card-title"><i class="ti ti-scale"></i> Saldos por cliente</div><div id="saldos-list"></div></div>
+        <div class="card" style="margin-bottom:1rem;"><div class="search-bar"><input type="text" id="co-search" placeholder="Buscar compra por cliente, folio, moneda..." oninput="renderCompras()"></div></div>
+        <div class="card"><div id="compras-list"></div></div>
+      </div>
+
+      <!-- ░░ RESULTADOS / GANANCIAS ░░ -->
+      <div id="sec-resultados" class="section">
+        <div class="alert-box alert-info"><i class="ti ti-info-circle"></i><div>Resumen de la ganancia generada por las operaciones (compra, venta y liquidación), calculada como la diferencia entre el precio al cliente y el precio del proveedor (banco/corredora).</div></div>
+        <div class="card" style="margin-bottom:1rem;">
+          <div class="search-bar">
+            <select id="res-periodo" onchange="renderResultados()"><option value="mes">Este mes</option><option value="anio" selected>Este año</option><option value="todo">Todo el historial</option><option value="rango">Rango personalizado</option></select>
+            <div id="res-rango-box" style="display:none;gap:8px;align-items:center;">
+              <input type="date" id="res-desde" onchange="renderResultados()">
+              <span style="font-size:12px;color:var(--text-muted);">a</span>
+              <input type="date" id="res-hasta" onchange="renderResultados()">
+            </div>
+          </div>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card" style="background:#EDF1EA;"><div class="stat-label" style="color:#3E4D5C;">Ganancia del período</div><div class="stat-value" id="res-total" style="color:#27500A;">0</div><div class="stat-sub">CLP</div></div>
+          <div class="stat-card"><div class="stat-label">Operaciones</div><div class="stat-value" id="res-nops">0</div><div class="stat-sub">en el período</div></div>
+          <div class="stat-card"><div class="stat-label">Ganancia promedio</div><div class="stat-value" id="res-prom">0</div><div class="stat-sub">CLP por operación</div></div>
+        </div>
+        <div class="card"><div class="card-title"><i class="ti ti-chart-bar"></i> Ganancia por mes</div><div id="res-chart"></div></div>
+        <div class="card"><div class="card-title"><i class="ti ti-users"></i> Ganancia por cliente</div><div id="res-cliente"></div></div>
+        <div class="card"><div class="card-title"><i class="ti ti-category"></i> Ganancia por tipo de operación</div><div id="res-tipo"></div></div>
+      </div>
+
+      <!-- ░░ LIBRO DE CAJA ░░ -->
+      <div id="sec-libro" class="section">
+        <div class="alert-box alert-info"><i class="ti ti-info-circle"></i><div>Registre los ingresos y egresos del negocio (por cliente, proveedor o de la empresa). Es la base contable; más adelante se le podrá sumar la conciliación de cartolas bancarias.</div></div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-pencil-plus"></i> Nuevo movimiento</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Fecha</label><input type="date" id="mv-fecha"></div>
+            <div class="form-group"><label>Tipo</label><select id="mv-tipo"><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></select></div>
+            <div class="form-group"><label>Monto</label><input type="number" id="mv-monto" min="0" step="0.01" placeholder="0.00"></div>
+            <div class="form-group"><label>Moneda</label><select id="mv-moneda"><option value="CLP">CLP</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="USDT">USDT</option><option value="USDC">USDC</option></select></div>
+            <div class="form-group"><label>Categoría</label><input type="text" id="mv-categoria" placeholder="Comisión, arriendo, sueldos, servicios..."></div>
+            <div class="form-group"><label>Contraparte</label><select id="mv-cptipo" onchange="onMovContraparte()"><option value="empresa">Empresa (gasto/ingreso propio)</option><option value="cliente">Cliente</option><option value="proveedor">Proveedor</option></select></div>
+            <div class="form-group" id="mv-cliente-box" style="display:none;"><label>Cliente</label><select id="mv-cliente"></select></div>
+            <div class="form-group" id="mv-proveedor-box" style="display:none;"><label>Proveedor</label><select id="mv-proveedor"></select></div>
+            <div class="form-group" id="mv-cptexto-box"><label>Nombre contraparte</label><input type="text" id="mv-cptexto" placeholder="Nombre"></div>
+          </div>
+          <div class="form-group" style="margin-top:8px;"><label>Descripción</label><input type="text" id="mv-desc" placeholder="Detalle del movimiento"></div>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="mv-conciliado" style="width:16px;height:16px;"> Conciliado con cartola bancaria</label>
+          <div class="actions"><button class="btn btn-primary" onclick="crearMovimiento()"><i class="ti ti-check"></i> Registrar movimiento</button></div>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card" style="background:#EAF3DE;"><div class="stat-label" style="color:#27500A;">Ingresos</div><div class="stat-value" id="mv-tot-ing" style="color:#27500A;font-size:16px;">0</div></div>
+          <div class="stat-card" style="background:#FCEBEB;"><div class="stat-label" style="color:#791F1F;">Egresos</div><div class="stat-value" id="mv-tot-egr" style="color:#A32D2D;font-size:16px;">0</div></div>
+          <div class="stat-card"><div class="stat-label">Neto</div><div class="stat-value" id="mv-tot-neto" style="font-size:16px;">0</div></div>
+        </div>
+        <div class="card" style="margin-bottom:1rem;">
+          <div class="search-bar">
+            <input type="text" id="mv-search" placeholder="Buscar por categoría, contraparte..." oninput="renderMovimientos()">
+            <select id="mv-fil-tipo" onchange="renderMovimientos()"><option value="">Ingresos y egresos</option><option value="ingreso">Solo ingresos</option><option value="egreso">Solo egresos</option></select>
+            <select id="mv-fil-cp" onchange="renderMovimientos()"><option value="">Toda contraparte</option><option value="cliente">Cliente</option><option value="proveedor">Proveedor</option><option value="empresa">Empresa</option></select>
+            <select id="mv-fil-mes" onchange="renderMovimientos()"><option value="">Todos los meses</option><option value="01">Enero</option><option value="02">Febrero</option><option value="03">Marzo</option><option value="04">Abril</option><option value="05">Mayo</option><option value="06">Junio</option><option value="07">Julio</option><option value="08">Agosto</option><option value="09">Septiembre</option><option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option></select>
+            <select id="mv-fil-conc" onchange="renderMovimientos()"><option value="">Conciliados y no</option><option value="si">Solo conciliados</option><option value="no">Solo no conciliados</option></select>
+          </div>
+        </div>
+        <div class="card"><div id="movimientos-list"></div></div>
+      </div>
+
+      <!-- ░░ PROVEEDORES ░░ -->
+      <div id="sec-proveedores" class="section">
+        <div class="alert-box alert-info"><i class="ti ti-info-circle"></i><div>Registre sus proveedores (bancos, corredoras de bolsa, operadores de USDT). Quedarán disponibles para seleccionarlos como contraparte en las operaciones y en el libro de caja.</div></div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-building-store"></i> Nuevo proveedor</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Nombre <span class="required">*</span></label><input type="text" id="pv-nombre" placeholder="Ej: Banco de Chile, Corredora XYZ"></div>
+            <div class="form-group"><label>Tipo</label><select id="pv-tipo"><option value="banco">Banco</option><option value="corredora">Corredora de bolsa</option><option value="operador_usdt">Operador de USDT</option><option value="otro">Otro</option></select></div>
+            <div class="form-group"><label>Contacto (opcional)</label><input type="text" id="pv-contacto" placeholder="Mesa de dinero, ejecutivo, teléfono..."></div>
+          </div>
+          <div class="form-group" style="margin-top:8px;"><label>Observaciones</label><input type="text" id="pv-obs" placeholder="Opcional"></div>
+          <div class="actions"><button class="btn btn-primary" onclick="crearProveedor()"><i class="ti ti-check"></i> Guardar proveedor</button></div>
+        </div>
+        <div class="card"><div id="proveedores-list"></div></div>
+      </div>
+
+      <!-- ░░ ABONOS EN CUENTA ░░ -->
+      <div id="sec-cuenta" class="section">
+        <div class="alert-box alert-info"><i class="ti ti-info-circle"></i><div>Registre los abonos que los clientes hacen a su cuenta <strong>antes</strong> de cualquier compra o venta. Ese saldo en cuenta queda disponible para aplicarlo a una operación cuando la realicen.</div></div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-wallet"></i> Registrar abono en cuenta</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Cliente <span class="required">*</span></label><select id="cu-cliente"></select></div>
+            <div class="form-group"><label>Tipo</label><select id="cu-tipo"><option value="deposito">Depósito (entra)</option><option value="retiro">Retiro / devolución (sale)</option></select></div>
+            <div class="form-group"><label>Fecha</label><input type="date" id="cu-fecha"></div>
+            <div class="form-group"><label>Monto <span class="required">*</span></label><input type="number" id="cu-monto" min="0" step="0.01" placeholder="0.00"></div>
+            <div class="form-group"><label>Moneda</label><select id="cu-moneda"><option value="CLP">CLP</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="USDT">USDT</option><option value="USDC">USDC</option></select></div>
+            <div class="form-group"><label>Medio</label><input type="text" id="cu-medio" placeholder="Transferencia, efectivo..."></div>
+            <div class="form-group"><label>Cuenta de la empresa (banco)</label><select id="cu-banco"></select></div>
+          </div>
+          <div class="form-group" style="margin-top:8px;"><label>Observación</label><input type="text" id="cu-obs" placeholder="Opcional"></div>
+          <label class="mini-upload" style="margin-top:8px;" onclick="document.getElementById('file-cuenta').click()"><i class="ti ti-upload"></i> Comprobante (opcional)</label><div id="cu-file" style="margin-top:6px;"></div>
+          <input type="file" id="file-cuenta" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic" style="display:none;">
+          <div class="actions"><button class="btn btn-primary" onclick="registrarAbonoCuenta()"><i class="ti ti-check"></i> Registrar en cuenta</button></div>
+        </div>
+        <div class="card"><div class="card-title"><i class="ti ti-wallet"></i> Saldo en cuenta por cliente</div><div id="cuenta-saldos"></div></div>
+        <div class="card" style="margin-bottom:1rem;"><div class="search-bar"><input type="text" id="cu-search" placeholder="Buscar por cliente..." oninput="renderCuenta()"></div></div>
+        <div class="card"><div id="cuenta-list"></div></div>
+      </div>
+
+      <!-- ░░ CONCILIACIÓN BANCARIA ░░ -->
+      <div id="sec-conciliacion" class="section">
+        <div class="alert-box alert-info"><i class="ti ti-info-circle"></i><div>Importe la cartola de su banco (archivo CSV) y concíliela con los movimientos registrados (libro de caja y abonos en cuenta). El sistema sugiere coincidencias por monto y fecha; usted confirma cada una.</div></div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-file-spreadsheet"></i> 1. Importar cartola</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Cuenta bancaria</label><select id="conc-cuenta"></select></div>
+            <div class="form-group"><label>Archivo CSV de la cartola</label><input type="file" id="file-cartola" accept=".csv,.txt"></div>
+          </div>
+          <p class="section-subtitle" style="margin-top:10px;">O pegue el contenido de la cartola (separado por comas o punto y coma):</p>
+          <textarea id="conc-paste" placeholder="Fecha;Descripción;Cargo;Abono&#10;02/06/2026;Transferencia Juan Perez;;9500000" style="width:100%;min-height:90px;font-family:monospace;font-size:12px;padding:10px;border:0.5px solid var(--border-strong);border-radius:8px;"></textarea>
+          <div class="actions" style="justify-content:flex-start;"><button class="btn btn-secondary" onclick="leerCartolaPegada()"><i class="ti ti-clipboard-check"></i> Leer pegado</button></div>
+
+          <div id="conc-mapeo" style="display:none;border-top:0.5px solid var(--border);margin-top:12px;padding-top:12px;">
+            <div class="card-title"><i class="ti ti-columns"></i> 2. Asociar columnas</div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;cursor:pointer;"><input type="checkbox" id="conc-header" checked onchange="mostrarMapeo()"> La primera fila es encabezado</label>
+            <div class="form-grid">
+              <div class="form-group"><label>Columna Fecha</label><select id="conc-col-fecha"></select></div>
+              <div class="form-group"><label>Columna Descripción</label><select id="conc-col-desc"></select></div>
+              <div class="form-group"><label>Formato de monto</label><select id="conc-modo-monto" onchange="onModoMonto()"><option value="dos">Dos columnas (cargo y abono)</option><option value="uno">Una columna (con signo)</option></select></div>
+              <div class="form-group conc-uno" style="display:none;"><label>Columna Monto</label><select id="conc-col-monto"></select></div>
+              <div class="form-group conc-dos"><label>Columna Cargo (egreso)</label><select id="conc-col-cargo"></select></div>
+              <div class="form-group conc-dos"><label>Columna Abono (ingreso)</label><select id="conc-col-abono"></select></div>
+            </div>
+            <div id="conc-preview" style="overflow-x:auto;margin:8px 0;font-size:11px;"></div>
+            <div class="actions" style="justify-content:flex-start;"><button class="btn btn-primary" onclick="procesarCartola()"><i class="ti ti-check"></i> Procesar cartola</button></div>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card" style="background:#EAF3DE;"><div class="stat-label" style="color:#27500A;">Conciliadas</div><div class="stat-value" id="conc-tot-ok" style="color:#27500A;">0</div></div>
+          <div class="stat-card"><div class="stat-label">Pendientes</div><div class="stat-value" id="conc-tot-pend">0</div></div>
+          <div class="stat-card"><div class="stat-label">Total líneas</div><div class="stat-value" id="conc-tot-all">0</div></div>
+        </div>
+        <div class="card" style="margin-bottom:1rem;"><div class="search-bar">
+          <select id="conc-fil" onchange="renderCartola()"><option value="pend">Pendientes</option><option value="ok">Conciliadas</option><option value="">Todas</option></select>
+          <button class="btn btn-secondary" onclick="limpiarCartola()"><i class="ti ti-trash"></i> Vaciar cartola importada</button>
+        </div></div>
+        <div class="card"><div id="cartola-list"></div></div>
+      </div>
+
+      <!-- ░░ PENDIENTES / DOCUMENTACIÓN ░░ -->
+      <div id="sec-pendientes" class="section">
+        <div class="alert-box alert-warning"><i class="ti ti-clipboard-list"></i><div>Transferencias que aún no tienen sus dos documentos obligatorios. En rojo faltan ambos; en amarillo falta uno.</div></div>
+        <div id="pendientes-content"></div>
+      </div>
+
+      <!-- ░░ ALERTAS ░░ -->
+      <div id="sec-alertas" class="section">
+        <div class="alert-box alert-info"><i class="ti ti-info-circle"></i><div>Las alertas se generan cuando el monto acumulado mensual supera los umbrales configurados (sección Configuración).</div></div>
+        <div id="alertas-content"></div>
+      </div>
+
+      <!-- ░░ CONFIGURACIÓN ░░ -->
+      <div id="sec-config" class="section">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-bell-ringing"></i> Umbrales de alerta mensual</div>
+          <p class="section-subtitle">Se activará una alerta cuando el monto total transferido en el mes supere estos valores. Deje en 0 para desactivar.</p>
+          <div id="threshold-rows">
+            <div class="threshold-row"><label><strong>USD</strong> — Dólar estadounidense</label><input type="number" id="th-USD" min="0" step="100" placeholder="Ej: 10000"> <span style="font-size:12px;color:var(--text-muted);">USD</span></div>
+            <div class="threshold-row"><label><strong>CLP</strong> — Peso chileno</label><input type="number" id="th-CLP" min="0" step="100000" placeholder="Ej: 5000000"> <span style="font-size:12px;color:var(--text-muted);">CLP</span></div>
+            <div class="threshold-row"><label><strong>EUR</strong> — Euro</label><input type="number" id="th-EUR" min="0" step="100" placeholder="Ej: 9000"> <span style="font-size:12px;color:var(--text-muted);">EUR</span></div>
+            <div class="threshold-row"><label><strong>BRL</strong> — Real brasileño</label><input type="number" id="th-BRL" min="0" step="1000" placeholder="Ej: 50000"> <span style="font-size:12px;color:var(--text-muted);">BRL</span></div>
+            <div class="threshold-row"><label><strong>ARS</strong> — Peso argentino</label><input type="number" id="th-ARS" min="0" step="100000" placeholder="Ej: 1000000"> <span style="font-size:12px;color:var(--text-muted);">ARS</span></div>
+            <div class="threshold-row"><label><strong>PEN</strong> — Sol peruano</label><input type="number" id="th-PEN" min="0" step="1000" placeholder="Ej: 40000"> <span style="font-size:12px;color:var(--text-muted);">PEN</span></div>
+          </div>
+          <div class="actions"><button class="btn btn-primary" onclick="guardarConfig()"><i class="ti ti-check"></i> Guardar umbrales</button></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-building-bank"></i> Cuentas bancarias de la empresa</div>
+          <p class="section-subtitle">Registre las cuentas donde recibe o paga dinero. Se usan en los abonos en cuenta y para la futura conciliación de cartolas.</p>
+          <div class="form-grid">
+            <div class="form-group"><label>Banco</label><input type="text" id="cb-banco" placeholder="Ej: Banco de Chile"></div>
+            <div class="form-group"><label>N° de cuenta</label><input type="text" id="cb-numero" placeholder="Ej: 0001234567"></div>
+            <div class="form-group"><label>Tipo</label><select id="cb-tipo"><option value="Corriente">Cuenta corriente</option><option value="Vista">Cuenta vista</option><option value="Ahorro">Ahorro</option><option value="Otra">Otra</option></select></div>
+            <div class="form-group"><label>Moneda</label><select id="cb-moneda"><option value="CLP">CLP</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="USDT">USDT</option><option value="USDC">USDC</option></select></div>
+            <div class="form-group"><label>Alias (opcional)</label><input type="text" id="cb-alias" placeholder="Ej: Cuenta operativa"></div>
+          </div>
+          <div class="actions"><button class="btn btn-primary" onclick="crearCuentaBancaria()"><i class="ti ti-check"></i> Agregar cuenta bancaria</button></div>
+          <div id="cuentas-bancarias-list" style="margin-top:12px;"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-cloud-cog"></i> Respaldo automático en la nube</div>
+          <p class="section-subtitle">Si lo activa, cada vez que guarde una transferencia se descargará su carpeta (ZIP con datos y documentos). Configurando la carpeta de descargas del navegador hacia Google Drive u OneDrive, cada operación quedará respaldada en la nube automáticamente.</p>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;padding:8px 0;">
+            <input type="checkbox" id="cfg-autodescarga" style="width:18px;height:18px;cursor:pointer;">
+            <span>Descargar automáticamente cada operación al guardar</span>
+          </label>
+          <div class="alert-box alert-info" style="margin-top:10px;"><i class="ti ti-info-circle"></i><div>En su navegador: Configuración → Descargas → elija como carpeta la de Google Drive u OneDrive.</div></div>
+          <div class="actions"><button class="btn btn-primary" onclick="guardarConfig()"><i class="ti ti-check"></i> Guardar configuración</button></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-photo"></i> Logo de la empresa</div>
+          <p class="section-subtitle">El logo aparece en la barra lateral. Formatos: PNG, JPG, SVG.</p>
+          <div class="upload-zone" onclick="document.getElementById('logoInput2').click()">
+            <i class="ti ti-photo-up"></i><p>Haga clic para subir o cambiar el logo</p><span>PNG, JPG, SVG — recomendado fondo transparente</span>
+          </div>
+          <input type="file" id="logoInput2" accept="image/*">
+          <div id="logo-preview-config" style="margin-top:10px;"></div>
+        </div>
+      </div>
+
+      <!-- ░░ EXPORTAR ░░ -->
+      <div id="sec-exportar" class="section">
+        <div class="card" style="border-color:#9FC79A;background:#F2F6EF;">
+          <div class="card-title"><i class="ti ti-cloud-upload"></i> Guardar en la nube (Google Drive u OneDrive)</div>
+          <p style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:10px;">Para que la información <strong>no se pierda</strong> al borrar el historial o las cookies, guárdela como archivos reales dentro de una carpeta sincronizada con la nube. Una sola vez:</p>
+          <ol style="font-size:13px;color:var(--text);line-height:1.7;margin:0 0 12px 18px;">
+            <li>Instale la app de escritorio de <strong>Google Drive</strong> o <strong>OneDrive</strong> (gratis).</li>
+            <li>Descargue todas las operaciones en carpetas por folio con el botón de abajo.</li>
+            <li>Descomprima ese archivo dentro de su carpeta de Drive/OneDrive. Listo: respaldado en la nube.</li>
+          </ol>
+          <button class="btn btn-primary" onclick="descargarTodoZip()"><i class="ti ti-folders"></i> Descargar TODAS las operaciones (una carpeta por folio)</button>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-file-spreadsheet"></i> Exportar registros</div>
+          <p class="section-subtitle">CSV para Excel, o JSON como respaldo completo (incluye clientes, facturas y documentos) para volver a cargar.</p>
+          <div class="form-grid" style="margin-bottom:1rem;max-width:400px;">
+            <div class="form-group"><label>Desde</label><input type="date" id="exp-desde"></div>
+            <div class="form-group"><label>Hasta</label><input type="date" id="exp-hasta"></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="exportCSV()"><i class="ti ti-file-spreadsheet"></i> Exportar CSV</button>
+            <button class="btn btn-secondary" onclick="exportJSON()"><i class="ti ti-file-code"></i> Exportar JSON (respaldo)</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-database-import"></i> Importar respaldo</div>
+          <p class="section-subtitle">Restaure desde un archivo JSON exportado previamente. Los registros existentes se mantienen.</p>
+          <div class="upload-zone" onclick="document.getElementById('importInput').click()"><i class="ti ti-upload"></i><p>Seleccionar archivo JSON de respaldo</p></div>
+          <input type="file" id="importInput" accept=".json">
+        </div>
+        <div class="card" style="border-color:#F09595;">
+          <div class="card-title" style="color:#A32D2D;"><i class="ti ti-trash" style="color:#A32D2D;"></i> Zona de peligro</div>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:1rem;">Elimina todos los datos (clientes, transferencias y facturas) de forma permanente. Exporte un respaldo antes.</p>
+          <button class="btn btn-danger" onclick="eliminarTodo()"><i class="ti ti-trash"></i> Eliminar todos los datos</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal-box">
+    <button class="modal-close" onclick="cerrarModal()"><i class="ti ti-x"></i></button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+
+<!-- ===== Capa de datos: Supabase + MVC ===== -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="src/config/supabase.js"></script>
+<script src="src/controllers/authController.js"></script>
+<script>
+  /* Proteccion de acceso: sin sesion valida y autorizada -> login */
+  (async function(){
+    var ok = await window.Alun.auth.guard("index.html");
+    if (ok) document.documentElement.style.visibility = "";
+  })();
+</script>
+<!-- App existente del portal (secciones completas, almacenamiento local) -->
+<script src="assets/js/legacy-app.js"></script>
+<!-- Modelos y controladores del nucleo conectados a Supabase -->
+<script src="src/models/Cliente.js"></script>
+<script src="src/models/Compra.js"></script>
+<script src="src/models/Registro.js"></script>
+<script src="src/controllers/clientesController.js"></script>
+<script src="src/controllers/comprasController.js"></script>
+<script src="src/controllers/registrosController.js"></script>
+</body>
+</html>
