@@ -1,6 +1,6 @@
 /* ============================================================================
  *  CONFIG · Cliente Supabase (capa de infraestructura del MVC)
- *  Inversiones Alun SpA — Portal interno UAF
+ *  Inversiones Alun SpA — Portal interno UAF  (build: r1.2)
  * ----------------------------------------------------------------------------
  *  Requiere que el script UMD de @supabase/supabase-js se cargue ANTES
  *  (se incluye por CDN en index.html y app.html). Expone window.supabase.
