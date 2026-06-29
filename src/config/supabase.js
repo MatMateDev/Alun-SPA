@@ -19,6 +19,7 @@
   // Solo estos correos pueden solicitar y validar el código.
   const ALLOWED_EMAILS = [
     "felgonzpu@gmail.com",
+    "araosma@gmail.com",
   ];
 
   if (!window.supabase || typeof window.supabase.createClient !== "function") {
