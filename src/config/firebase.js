@@ -39,8 +39,25 @@
   A.fb = window.firebase;
   A.authClient = window.firebase.auth();
   A.db = window.firebase.firestore();
+  A.storage = typeof window.firebase.storage === "function" ? window.firebase.storage() : null;
   A.models = A.models || {};
   A.controllers = A.controllers || {};
+
+  // Sube un archivo a la carpeta del cliente y devuelve { storagePath, url, nombre }.
+  // file puede ser un File/Blob, o un objeto { nombre, data } con data = dataURL base64.
+  A.subirDocumento = async function (clienteId, subcarpeta, file) {
+    if (!A.storage || !clienteId || !file) return null;
+    const nombre = file.name || file.nombre || "archivo";
+    const path = "clientes/" + clienteId + "/" + subcarpeta + "/" + Date.now() + "_" + nombre;
+    const ref = A.storage.ref().child(path);
+    if (file.data && typeof file.data === "string") {
+      await ref.putString(file.data, "data_url"); // base64 dataURL
+    } else {
+      await ref.put(file); // File/Blob
+    }
+    const url = await ref.getDownloadURL();
+    return { storagePath: path, url, nombre };
+  };
 
   A.isAllowed = function (email) {
     if (!email) return false;

@@ -1,0 +1,24 @@
+rules_version = '2';
+
+// ============================================================================
+//  Reglas de Cloud Storage — Inversiones Alun SpA
+//  Solo usuarios autenticados y autorizados acceden a los documentos.
+//  Pega en: Firebase Console -> Storage -> Reglas.
+//  Mantén la lista igual que ALLOWED_EMAILS (src/config/firebase.js).
+// ============================================================================
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function autorizado() {
+      return request.auth != null
+        && request.auth.token.email in [
+          'felipe@inversionesalun.cl'
+        ];
+    }
+
+    // Documentos colgando del cliente: clientes/{clienteId}/...
+    match /clientes/{clienteId}/{allPaths=**} {
+      allow read, write: if autorizado();
+    }
+  }
+}
