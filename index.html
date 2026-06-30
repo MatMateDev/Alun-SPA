@@ -30,7 +30,6 @@
   input{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:10px;
     font-family:var(--font-body);font-size:15px;margin-bottom:1rem;background:var(--bg)}
   input:focus{outline:none;border-color:var(--blue)}
-  #codigo{font-family:var(--font-mono);letter-spacing:6px;text-align:center;font-size:20px}
   button{width:100%;padding:12px;border:none;border-radius:10px;background:var(--blue-dark);
     color:#fff;font-family:var(--font-body);font-size:15px;font-weight:600;cursor:pointer}
   button:hover{background:#33414e} button:disabled{opacity:.55;cursor:default}
@@ -38,9 +37,6 @@
   .msg.err{display:block;background:#FCEBEB;color:var(--red-dark)}
   .msg.ok{display:block;background:#EAF3DE;color:var(--green-dark)}
   .hint{font-size:12px;color:var(--text-muted);margin-top:1rem;line-height:1.5}
-  .link{background:none;color:var(--blue-dark);text-decoration:underline;width:auto;padding:0;
-    font-size:12px;font-weight:500;margin-top:.75rem}
-  .hidden{display:none}
 </style>
 </head>
 <body>
@@ -49,75 +45,49 @@
     <h1>Inversiones Alun SpA</h1>
     <p class="sub">Portal interno · Cumplimiento UAF</p>
 
-    <!-- Paso 1: pedir correo -->
-    <div id="paso-correo">
-      <label for="email">Correo autorizado</label>
-      <input id="email" type="email" autocomplete="email" placeholder="nombre@correo.cl" />
-      <button id="btn-enviar">Enviar código de verificación</button>
-      <p class="hint">Le enviaremos un código de 6 dígitos a su correo. Solo correos autorizados pueden ingresar.</p>
-    </div>
+    <label for="email">Correo</label>
+    <input id="email" type="email" autocomplete="username" placeholder="nombre@inversionesalun.cl" />
 
-    <!-- Paso 2: ingresar código -->
-    <div id="paso-codigo" class="hidden">
-      <label for="codigo">Código de verificación</label>
-      <input id="codigo" type="text" inputmode="numeric" maxlength="6" placeholder="······" />
-      <button id="btn-verificar">Ingresar al portal</button>
-      <button class="link" id="btn-volver">Usar otro correo</button>
-    </div>
+    <label for="password">Contraseña</label>
+    <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" />
+
+    <button id="btn-entrar">Ingresar al portal</button>
+    <p class="hint">Acceso restringido al personal autorizado de Inversiones Alun SpA.</p>
 
     <div id="msg" class="msg"></div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="src/config/supabase.js"></script>
+  <!-- Firebase (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="src/config/firebase.js"></script>
   <script src="src/controllers/authController.js"></script>
   <script>
     (function () {
       const A = window.Alun;
       const $ = (id) => document.getElementById(id);
       const msg = $("msg");
-      const show = (t, kind) => { msg.textContent = t; msg.className = "msg " + kind; };
-      const clearMsg = () => { msg.className = "msg"; msg.textContent = ""; };
+      const show = (t, kind) => { msg.textContent = t || "Ocurrió un problema."; msg.className = "msg " + kind; };
 
       // Si ya hay sesión válida, ir directo al portal.
-      A.auth.sesion().then((s) => {
-        if (s && A.isAllowed(s.user && s.user.email)) window.location.replace("app.html");
+      A.auth.sesion().then((u) => {
+        if (u && A.isAllowed(u.email)) window.location.replace("app.html");
       });
 
-      $("btn-enviar").addEventListener("click", async () => {
-        clearMsg();
-        const email = $("email").value;
-        const btn = $("btn-enviar");
-        btn.disabled = true; btn.textContent = "Enviando…";
-        const r = await A.auth.enviarCodigo(email);
-        btn.disabled = false; btn.textContent = "Enviar código de verificación";
-        if (!r.ok) return show(r.error, "err");
-        $("paso-correo").classList.add("hidden");
-        $("paso-codigo").classList.remove("hidden");
-        show("Código enviado a " + email + ". Revise su correo.", "ok");
-        $("codigo").focus();
-      });
-
-      $("btn-verificar").addEventListener("click", async () => {
-        clearMsg();
-        const email = $("email").value;
-        const token = $("codigo").value;
-        const btn = $("btn-verificar");
-        btn.disabled = true; btn.textContent = "Verificando…";
-        const r = await A.auth.verificarCodigo(email, token);
+      async function entrar() {
+        msg.className = "msg";
+        const btn = $("btn-entrar");
+        btn.disabled = true; btn.textContent = "Ingresando…";
+        const r = await A.auth.login($("email").value, $("password").value);
         btn.disabled = false; btn.textContent = "Ingresar al portal";
         if (!r.ok) return show(r.error, "err");
         window.location.replace("app.html");
-      });
+      }
 
-      $("btn-volver").addEventListener("click", () => {
-        clearMsg();
-        $("paso-codigo").classList.add("hidden");
-        $("paso-correo").classList.remove("hidden");
-      });
-
-      $("codigo").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-verificar").click(); });
-      $("email").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btn-enviar").click(); });
+      $("btn-entrar").addEventListener("click", entrar);
+      $("password").addEventListener("keydown", (e) => { if (e.key === "Enter") entrar(); });
+      $("email").addEventListener("keydown", (e) => { if (e.key === "Enter") $("password").focus(); });
     })();
   </script>
 </body>

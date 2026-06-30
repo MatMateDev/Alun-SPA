@@ -746,9 +746,11 @@
 </div>
 
 
-<!-- ===== Capa de datos: Supabase + MVC ===== -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="src/config/supabase.js"></script>
+<!-- ===== Capa de datos: Firebase (Google Cloud) + MVC ===== -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="src/config/firebase.js"></script>
 <script src="src/controllers/authController.js"></script>
 <script>
   /* Proteccion de acceso: sin sesion valida y autorizada -> login */
@@ -759,7 +761,7 @@
 </script>
 <!-- App existente del portal (secciones completas, almacenamiento local) -->
 <script src="assets/js/legacy-app.js"></script>
-<!-- Modelos y controladores del nucleo conectados a Supabase -->
+<!-- Modelos y controladores del nucleo conectados a Firebase/Firestore -->
 <script src="src/models/Cliente.js"></script>
 <script src="src/models/Compra.js"></script>
 <script src="src/models/Registro.js"></script>

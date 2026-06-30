@@ -3,59 +3,47 @@
 Portal interno de cumplimiento UAF (Ley 19.913 · Circular 62) para la gestión de
 clientes (KYC/KYB), operaciones de cambio y registros de transferencias (Regla del Viaje).
 
-El acceso es **privado**: solo se entra mediante un **código de verificación** enviado
-al correo autorizado (Supabase Email OTP).
+El acceso es **privado**: login con **correo + contraseña** (Firebase Authentication),
+restringido al personal autorizado.
 
-## Arquitectura (MVC, vanilla JS sin build)
+## Arquitectura (MVC, vanilla JS sin build) sobre Google Cloud / Firebase
 
 ```
 .
-├── index.html                  # Vista de acceso (login por código OTP)
+├── index.html                  # Vista de acceso (login email + contraseña)
 ├── app.html                    # Vista del portal (protegida por sesión)
 ├── assets/
 │   ├── css/styles.css          # Estilos del portal
 │   └── js/legacy-app.js         # Lógica existente del portal (almacenamiento local)
 ├── src/
-│   ├── config/supabase.js       # Cliente Supabase + whitelist de correos
-│   ├── models/                  # Acceso a datos (Cliente, Compra, Registro)
-│   ├── controllers/             # Orquestación (auth, clientes, compras, registros)
+│   ├── config/firebase.js       # Init de Firebase + whitelist de correos
+│   ├── models/                  # Acceso a datos en Firestore (Cliente, Compra, Registro)
+│   ├── controllers/             # Orquestación (auth + clientes/compras/registros)
 │   └── views/                   # Doc de la capa de vista
-├── db/schema_release1.sql       # Esquema del Release 1 (núcleo)
-├── esquema_supabase_alun.sql    # Esquema completo (referencia, 16 tablas)
+├── db/firestore.rules           # Reglas de seguridad de Firestore
 └── inversiones_alun_uaf.html    # HTML monolítico original (referencia histórica)
 ```
 
-- **Model**: `src/models/*.js` — CRUD contra Supabase (`window.Alun.models.*`).
+- **Model**: `src/models/*.js` — CRUD contra Firestore (`window.Alun.models.*`).
 - **View**: `index.html`, `app.html`, `assets/css`, `assets/js`.
-- **Controller**: `src/controllers/*.js` — lógica de aplicación (`window.Alun.controllers.*`)
-  y autenticación (`window.Alun.auth`).
+- **Controller**: `src/controllers/*.js` y autenticación (`window.Alun.auth`).
 
-## Release 1 (MVP)
+## Backend: Firebase (Google Cloud)
 
-Tablas creadas en Supabase: `clientes`, `compras`, `registros` (+ `proveedores`,
-`facturas` por integridad referencial). RLS activado: solo usuarios autenticados leen/escriben.
+- **Auth**: Firebase Authentication (Email/Password). Usuarios creados manualmente
+  en la consola; whitelist en `src/config/firebase.js → ALLOWED_EMAILS`.
+- **Datos**: Cloud Firestore. Colecciones `clientes`, `compras`, `registros` (+ `counters`
+  para los folios correlativos CL-/CO-/OP-). Proyecto: `inversiones-alun-spa`.
+- **Reglas**: `db/firestore.rules` — solo usuarios autenticados y autorizados.
 
-## Acceso por código de verificación
+## Hosting
 
-1. El usuario ingresa su correo en `index.html`.
-2. Solo si está en la whitelist (`src/config/supabase.js → ALLOWED_EMAILS`) Supabase
-   envía un código de 6 dígitos al correo.
-3. El usuario ingresa el código y entra a `app.html`.
-4. `app.html` está protegido: sin sesión válida y autorizada, redirige al login.
-
-Correo autorizado actual: `felgonzpu@gmail.com`.
+Sitio estático desplegado en **Vercel** (deploy automático desde GitHub).
+URL: `https://alun-spa.vercel.app` · dominio: `sistema.inversionesalun.cl`.
 
 ## Desarrollo local
-
-Sírvelo por HTTP (no `file://`, para que la sesión persista correctamente):
 
 ```bash
 npx serve .        # o:  python -m http.server 8000
 ```
-
-Luego abre http://localhost:8000
-
-## Proyecto Supabase
-
-- URL: `https://qywhxkjherhwbgcaddna.supabase.co`
-- Clave publicable (segura para el navegador): ver `src/config/supabase.js`.
+Luego abre http://localhost:8000 (agrégalo en Firebase Auth → Settings → Dominios autorizados).

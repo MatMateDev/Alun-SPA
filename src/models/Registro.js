@@ -1,54 +1,54 @@
 /* ============================================================================
- *  MODEL · Registro de transferencia (Regla del Viaje) — tabla public.registros
+ *  MODEL · Registro de transferencia (Regla del Viaje) — colección "registros"
  *  Inversiones Alun SpA — Portal interno UAF
  * ----------------------------------------------------------------------------
- *  Folio OP-000001 generado por la BD. Requiere cliente_id (FK a clientes).
- *  Puede enlazar compra_id y factura_id (opcionales).
- *  Columnas: beneficiario_nombre, beneficiario_banco, beneficiario_cuenta,
- *    beneficiario_pais, moneda, monto, fecha, comprobante_hash,
- *    estado_documental(rojo|amarillo|verde).
+ *  Folio OP-000001 automático. Requiere cliente_id.
  * ========================================================================== */
 (function () {
   "use strict";
   const A = (window.Alun = window.Alun || {});
-  const TABLE = "registros";
+  const COL = "registros";
 
   const Registro = {
     async listar({ clienteId = null, limite = 300 } = {}) {
-      let q = A.db
-        .from(TABLE)
-        .select("*, clientes(folio, razon_social)")
-        .order("fecha", { ascending: false })
-        .limit(limite);
-      if (clienteId) q = q.eq("cliente_id", clienteId);
-      const { data, error } = await q;
-      return { data: data || [], error };
+      try {
+        let q = A.db.collection(COL).orderBy("created_at", "desc").limit(limite);
+        if (clienteId) q = A.db.collection(COL).where("cliente_id", "==", clienteId).limit(limite);
+        const snap = await q.get();
+        return { data: snap.docs.map((d) => ({ id: d.id, ...d.data() })), error: null };
+      } catch (error) { return { data: [], error }; }
     },
 
     async obtener(id) {
-      const { data, error } = await A.db.from(TABLE).select("*, clientes(folio, razon_social)").eq("id", id).single();
-      return { data, error };
+      try {
+        const d = await A.db.collection(COL).doc(id).get();
+        return { data: d.exists ? { id: d.id, ...d.data() } : null, error: null };
+      } catch (error) { return { data: null, error }; }
     },
 
     async crear(registro) {
-      const payload = { ...registro };
-      delete payload.id;
-      delete payload.folio;
-      const { data, error } = await A.db.from(TABLE).insert(payload).select().single();
-      return { data, error };
+      try {
+        const payload = { ...registro };
+        delete payload.id;
+        payload.folio = await A.nextFolio("registros", "OP-", 6);
+        payload.created_at = A.serverTimestamp();
+        const ref = await A.db.collection(COL).add(payload);
+        return { data: { id: ref.id, ...payload }, error: null };
+      } catch (error) { return { data: null, error }; }
     },
 
     async actualizar(id, cambios) {
-      const payload = { ...cambios };
-      delete payload.id;
-      delete payload.folio;
-      const { data, error } = await A.db.from(TABLE).update(payload).eq("id", id).select().single();
-      return { data, error };
+      try {
+        const payload = { ...cambios };
+        delete payload.id; delete payload.folio; delete payload.created_at;
+        await A.db.collection(COL).doc(id).update(payload);
+        return { data: { id, ...payload }, error: null };
+      } catch (error) { return { data: null, error }; }
     },
 
     async eliminar(id) {
-      const { error } = await A.db.from(TABLE).delete().eq("id", id);
-      return { error };
+      try { await A.db.collection(COL).doc(id).delete(); return { error: null }; }
+      catch (error) { return { error }; }
     },
   };
 

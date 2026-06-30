@@ -1,57 +1,56 @@
 /* ============================================================================
- *  CONTROLLER · Autenticación por código de verificación (Email OTP)
+ *  CONTROLLER · Autenticación con email + contraseña (Firebase Auth)
  *  Inversiones Alun SpA — Portal interno UAF
  * ----------------------------------------------------------------------------
- *  Flujo:
- *    1. enviarCodigo(email): valida whitelist y pide a Supabase el OTP por correo.
- *    2. verificarCodigo(email, token): valida el código de 6 dígitos.
- *    3. guard(): protege app.html; redirige a index.html si no hay sesión válida.
- *    4. cerrarSesion(): signOut y vuelta al login.
+ *  - login(email, password): inicia sesión.
+ *  - guard(): protege app.html; redirige a index.html si no hay sesión.
+ *  - cerrarSesion(): signOut y vuelta al login.
  * ========================================================================== */
 (function () {
   "use strict";
   const A = (window.Alun = window.Alun || {});
   const auth = (A.auth = {});
 
-  // Solicita el envío del código de verificación al correo indicado.
-  auth.enviarCodigo = async function (email) {
+  function traducir(code) {
+    switch (code) {
+      case "auth/invalid-email": return "El correo no es válido.";
+      case "auth/user-disabled": return "Este usuario está deshabilitado.";
+      case "auth/user-not-found":
+      case "auth/wrong-password":
+      case "auth/invalid-credential": return "Correo o contraseña incorrectos.";
+      case "auth/too-many-requests": return "Demasiados intentos. Espera unos minutos.";
+      case "auth/network-request-failed": return "Error de red. Revisa tu conexión.";
+      default: return "No se pudo iniciar sesión. Intenta nuevamente.";
+    }
+  }
+
+  auth.login = async function (email, password) {
     if (!A.isAllowed(email)) {
       return { ok: false, error: "Este correo no está autorizado para ingresar." };
     }
-    const { error } = await A.client.auth.signInWithOtp({
-      email: email.trim(),
-      options: { shouldCreateUser: true },
-    });
-    if (error) return { ok: false, error: error.message };
-    return { ok: true };
-  };
-
-  // Verifica el código de 6 dígitos recibido por correo.
-  auth.verificarCodigo = async function (email, token) {
-    if (!A.isAllowed(email)) {
-      return { ok: false, error: "Este correo no está autorizado para ingresar." };
+    try {
+      await A.authClient.signInWithEmailAndPassword(email.trim(), password);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: traducir(e && e.code) };
     }
-    const { data, error } = await A.client.auth.verifyOtp({
-      email: email.trim(),
-      token: token.trim(),
-      type: "email",
+  };
+
+  // Devuelve el usuario actual cuando Firebase resuelve el estado de sesión.
+  auth.sesion = function () {
+    return new Promise((resolve) => {
+      const unsub = A.authClient.onAuthStateChanged((user) => {
+        unsub();
+        resolve(user || null);
+      });
     });
-    if (error) return { ok: false, error: error.message };
-    return { ok: true, session: data.session };
   };
 
-  // Devuelve la sesión actual (o null).
-  auth.sesion = async function () {
-    const { data } = await A.client.auth.getSession();
-    return data ? data.session : null;
-  };
-
-  // Protege una página: si no hay sesión válida y autorizada, redirige al login.
+  // Protege una página: sin sesión válida y autorizada, redirige al login.
   auth.guard = async function (loginUrl) {
     loginUrl = loginUrl || "index.html";
-    const session = await auth.sesion();
-    const email = session && session.user ? session.user.email : null;
-    if (!session || !A.isAllowed(email)) {
+    const user = await auth.sesion();
+    if (!user || !A.isAllowed(user.email)) {
       window.location.replace(loginUrl);
       return false;
     }
@@ -59,7 +58,7 @@
   };
 
   auth.cerrarSesion = async function (loginUrl) {
-    await A.client.auth.signOut();
+    await A.authClient.signOut();
     window.location.replace(loginUrl || "index.html");
   };
 })();

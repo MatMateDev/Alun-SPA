@@ -1,53 +1,57 @@
 /* ============================================================================
- *  MODEL · Compra / Operación — tabla public.compras
+ *  MODEL · Compra / Operación — colección Firestore "compras"
  *  Inversiones Alun SpA — Portal interno UAF
  * ----------------------------------------------------------------------------
- *  Folio CO-000001 generado por la BD. Requiere cliente_id (FK a clientes).
- *  Columnas: fecha, tipo_operacion(compra_div|venta_div|liq), moneda_compra,
- *    monto_compra, moneda_pago, tipo_cambio, tc_proveedor, contraparte,
- *    proveedor_id, comision, ganancia_clp, ...
+ *  Folio CO-000001 automático. Requiere cliente_id. Se denormaliza
+ *  cliente_nombre/cliente_folio al crear para listar sin "joins".
  * ========================================================================== */
 (function () {
   "use strict";
   const A = (window.Alun = window.Alun || {});
-  const TABLE = "compras";
+  const COL = "compras";
 
   const Compra = {
     async listar({ clienteId = null, limite = 200 } = {}) {
-      let q = A.db
-        .from(TABLE)
-        .select("*, clientes(folio, razon_social)")
-        .order("fecha", { ascending: false })
-        .limit(limite);
-      if (clienteId) q = q.eq("cliente_id", clienteId);
-      const { data, error } = await q;
-      return { data: data || [], error };
+      try {
+        let q = A.db.collection(COL).orderBy("created_at", "desc").limit(limite);
+        if (clienteId) q = A.db.collection(COL).where("cliente_id", "==", clienteId).limit(limite);
+        const snap = await q.get();
+        return { data: snap.docs.map((d) => ({ id: d.id, ...d.data() })), error: null };
+      } catch (error) { return { data: [], error }; }
     },
 
     async obtener(id) {
-      const { data, error } = await A.db.from(TABLE).select("*, clientes(folio, razon_social)").eq("id", id).single();
-      return { data, error };
+      try {
+        const d = await A.db.collection(COL).doc(id).get();
+        return { data: d.exists ? { id: d.id, ...d.data() } : null, error: null };
+      } catch (error) { return { data: null, error }; }
     },
 
     async crear(compra) {
-      const payload = { ...compra };
-      delete payload.id;
-      delete payload.folio;
-      const { data, error } = await A.db.from(TABLE).insert(payload).select().single();
-      return { data, error };
+      try {
+        const payload = { ...compra };
+        delete payload.id;
+        payload.folio = await A.nextFolio("compras", "CO-", 6);
+        payload.created_at = A.serverTimestamp();
+        payload.updated_at = A.serverTimestamp();
+        const ref = await A.db.collection(COL).add(payload);
+        return { data: { id: ref.id, ...payload }, error: null };
+      } catch (error) { return { data: null, error }; }
     },
 
     async actualizar(id, cambios) {
-      const payload = { ...cambios };
-      delete payload.id;
-      delete payload.folio;
-      const { data, error } = await A.db.from(TABLE).update(payload).eq("id", id).select().single();
-      return { data, error };
+      try {
+        const payload = { ...cambios };
+        delete payload.id; delete payload.folio; delete payload.created_at;
+        payload.updated_at = A.serverTimestamp();
+        await A.db.collection(COL).doc(id).update(payload);
+        return { data: { id, ...payload }, error: null };
+      } catch (error) { return { data: null, error }; }
     },
 
     async eliminar(id) {
-      const { error } = await A.db.from(TABLE).delete().eq("id", id);
-      return { error };
+      try { await A.db.collection(COL).doc(id).delete(); return { error: null }; }
+      catch (error) { return { error }; }
     },
   };
 

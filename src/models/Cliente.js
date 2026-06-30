@@ -1,53 +1,61 @@
 /* ============================================================================
- *  MODEL · Cliente (ficha KYB / KYC) — tabla public.clientes
+ *  MODEL · Cliente (ficha KYB / KYC) — colección Firestore "clientes"
  *  Inversiones Alun SpA — Portal interno UAF
  * ----------------------------------------------------------------------------
- *  Es la tabla más importante del sistema. El folio (CL-00001) lo genera la
- *  base de datos automáticamente; no lo envíes al crear.
- *  Columnas relevantes (ver db/schema_release1.sql):
- *    tipo_persona, razon_social, rut_comercial, giro, direccion, comuna, region,
- *    correo, telefono, rl_nombre, rl_rut, pep, ddc_nivel, ui_nivel_riesgo, ...
+ *  Es la entidad más importante. El folio (CL-00001) se genera automáticamente.
  * ========================================================================== */
 (function () {
   "use strict";
   const A = (window.Alun = window.Alun || {});
-  const TABLE = "clientes";
+  const COL = "clientes";
 
   const Cliente = {
     async listar({ buscar = "", limite = 200 } = {}) {
-      let q = A.db.from(TABLE).select("*").order("created_at", { ascending: false }).limit(limite);
-      if (buscar) {
-        const term = `%${buscar}%`;
-        q = q.or(`razon_social.ilike.${term},rut_comercial.ilike.${term},folio.ilike.${term}`);
-      }
-      const { data, error } = await q;
-      return { data: data || [], error };
+      try {
+        const snap = await A.db.collection(COL).orderBy("created_at", "desc").limit(limite).get();
+        let data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        if (buscar) {
+          const t = buscar.trim().toLowerCase();
+          data = data.filter((c) =>
+            [c.razon_social, c.rut_comercial, c.folio].some((v) => (v || "").toLowerCase().includes(t))
+          );
+        }
+        return { data, error: null };
+      } catch (error) { return { data: [], error }; }
     },
 
     async obtener(id) {
-      const { data, error } = await A.db.from(TABLE).select("*").eq("id", id).single();
-      return { data, error };
+      try {
+        const d = await A.db.collection(COL).doc(id).get();
+        return { data: d.exists ? { id: d.id, ...d.data() } : null, error: null };
+      } catch (error) { return { data: null, error }; }
     },
 
     async crear(cliente) {
-      const payload = { ...cliente };
-      delete payload.id;
-      delete payload.folio; // lo genera la BD
-      const { data, error } = await A.db.from(TABLE).insert(payload).select().single();
-      return { data, error };
+      try {
+        const payload = { ...cliente };
+        delete payload.id;
+        payload.folio = await A.nextFolio("clientes", "CL-", 5);
+        payload.created_at = A.serverTimestamp();
+        payload.updated_at = A.serverTimestamp();
+        const ref = await A.db.collection(COL).add(payload);
+        return { data: { id: ref.id, ...payload }, error: null };
+      } catch (error) { return { data: null, error }; }
     },
 
     async actualizar(id, cambios) {
-      const payload = { ...cambios };
-      delete payload.id;
-      delete payload.folio;
-      const { data, error } = await A.db.from(TABLE).update(payload).eq("id", id).select().single();
-      return { data, error };
+      try {
+        const payload = { ...cambios };
+        delete payload.id; delete payload.folio; delete payload.created_at;
+        payload.updated_at = A.serverTimestamp();
+        await A.db.collection(COL).doc(id).update(payload);
+        return { data: { id, ...payload }, error: null };
+      } catch (error) { return { data: null, error }; }
     },
 
     async eliminar(id) {
-      const { error } = await A.db.from(TABLE).delete().eq("id", id);
-      return { error };
+      try { await A.db.collection(COL).doc(id).delete(); return { error: null }; }
+      catch (error) { return { error }; }
     },
   };
 
