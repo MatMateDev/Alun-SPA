@@ -54,7 +54,7 @@ docker compose up -d --build
 
 Verificar:
 ```bash
-curl https://archivos.inversionesalun.cl/api/health
+curl https://archivos.sistema.inversionesalun.cl/api/health
 # {"ok":true}
 ```
 

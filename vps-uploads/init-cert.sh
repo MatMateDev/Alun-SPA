@@ -1,8 +1,8 @@
 #!/bin/sh
-# Emite el primer certificado TLS de Let's Encrypt para archivos.inversionesalun.cl.
+# Emite el primer certificado TLS de Let's Encrypt para archivos.sistema.inversionesalun.cl.
 # Ejecutar UNA vez, después de que el DNS ya resuelva al VPS. Requiere docker compose.
 set -e
-DOMAIN="archivos.inversionesalun.cl"
+DOMAIN="archivos.sistema.inversionesalun.cl"
 EMAIL="felgonzpu@gmail.com"
 
 mkdir -p nginx/conf.d

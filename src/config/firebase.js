@@ -29,7 +29,7 @@
 
   // Servicio propio en el VPS (BoxHosting) que guarda los documentos adjuntos.
   // Reemplaza a Cloud Storage (que exige plan de pago). Ver /vps-uploads.
-  const UPLOADS_API_URL = "https://archivos.inversionesalun.cl";
+  const UPLOADS_API_URL = "https://archivos.sistema.inversionesalun.cl";
 
   if (!window.firebase || typeof window.firebase.initializeApp !== "function") {
     console.error("[Alun] No se cargaron los SDK de Firebase (CDN).");
