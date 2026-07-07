@@ -21,6 +21,9 @@
     { col: "facturas",  key: "alun_facturas",  carpeta: "facturas",       fn: "guardarFacturas" },
     { col: "compras",   key: "alun_compras",   carpeta: "compras",        fn: "guardarCompras" },
     { col: "cuenta",    key: "alun_cuenta",    carpeta: "cuenta",         fn: "guardarCuenta" },
+    // Cumplimiento UAF: registros eliminados (retención 5 años) y alertas descartadas (auditoría).
+    { col: "archivo",             key: "alun_archivo",             carpeta: "archivo", fn: "guardarArchivo" },
+    { col: "alertas_descartadas", key: "alun_alertas_descartadas", carpeta: "alertas", fn: "guardarAlertasDescartadas" },
   ];
 
   const esArchivo = (o) => o && typeof o === "object" && typeof o.data === "string" && o.data.indexOf("data:") === 0;

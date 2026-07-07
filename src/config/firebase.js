@@ -24,6 +24,7 @@
   // existen como usuarios en Firebase Authentication los que tú crees).
   const ALLOWED_EMAILS = [
     "felgonzpu@gmail.com",
+    "araosma@gmail.com"
   ];
 
   if (!window.firebase || typeof window.firebase.initializeApp !== "function") {

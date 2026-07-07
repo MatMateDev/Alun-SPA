@@ -20,6 +20,20 @@ function guardarClientes(){ try{ localStorage.setItem('alun_clientes', JSON.stri
 function guardarFacturas(){ try{ localStorage.setItem('alun_facturas', JSON.stringify(facturas)); }catch(e){} }
 function guardarConfigData(){ try{ localStorage.setItem('alun_config', JSON.stringify(config)); }catch(e){} }
 
+// ═══════════════ CUMPLIMIENTO UAF: retención, auditoría y alertas ═══════════════
+let archivo = cargar('alun_archivo', []);
+let alertasDescartadas = cargar('alun_alertas_descartadas', []);
+function guardarArchivo(){ try{ localStorage.setItem('alun_archivo', JSON.stringify(archivo)); }catch(e){} }
+function guardarAlertasDescartadas(){ try{ localStorage.setItem('alun_alertas_descartadas', JSON.stringify(alertasDescartadas)); }catch(e){} }
+// Auditoría: usuario autenticado que realiza la acción.
+function usuarioActual(){ try{ const u=window.Alun&&window.Alun.authClient&&window.Alun.authClient.currentUser; return u?u.email:''; }catch(e){ return ''; } }
+// Retención 5 años: antes de quitar un registro de la vista, se archiva con motivo/usuario/fecha.
+function archivar(tipo, item, motivo){
+  archivo.push({ id:'ar'+Date.now()+Math.floor(Math.random()*999), tipo:tipo, clienteId:(item&&item.clienteId)||null, motivo:motivo||'', eliminadoPor:usuarioActual(), eliminadoEn:new Date().toISOString(), data:item });
+  guardarArchivo();
+}
+function pedirMotivo(txt){ const m=prompt(txt+'\n\nIndique el motivo de la eliminación (obligatorio; el registro queda archivado 5 años para la UAF):'); if(m===null) return null; if(!m.trim()){ alert('Debe indicar un motivo.'); return null; } return m.trim(); }
+
 // ═══════════════ UTILS ═══════════════
 function v(id){ return (document.getElementById(id)||{}).value || ''; }
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -172,6 +186,7 @@ function guardarCliente(){
     folio: prev.folio || nuevoFolioCliente(),
     creadoEn: prev.creadoEn || new Date().toISOString(),
     actualizadoEn: new Date().toISOString(),
+    usuario: usuarioActual(),
     tipoPersona: tipoPersonaActual,
     fechaLlenado:v('cl-fecha-llenado'), tipoFicha:v('cl-tipo-ficha'), nivelDDC:v('cl-ddc'),
     nombre, rut, tipoSociedad:v('cl-tiposociedad'), fechaConstitucion:v('cl-fconstitucion'),
@@ -232,7 +247,7 @@ function editarCliente(id){
 
 function eliminarCliente(id){
   if(registros.some(r=>r.clienteId===id)){ alert('No se puede eliminar: el cliente tiene transferencias asociadas.'); return; }
-  if(!confirm('¿Eliminar este cliente?')) return;
+  const cli=clientePorId(id); const m=pedirMotivo('¿Eliminar este cliente?'); if(m===null) return; archivar('cliente', cli, m);
   clientes=clientes.filter(c=>c.id!==id); guardarClientes(); renderClientes(); actualizarDashboard();
 }
 
@@ -464,7 +479,7 @@ function guardarRegistro(){
     if(sel==='__nueva__'){
       const num=v('nf-numero');
       if(!num){ alert('Ingrese el N° de la factura común, o elija una existente, o cambie a factura propia.'); return; }
-      const g={ id:'f'+Date.now(), folio:nuevoFolioFactura(), numero:num, fecha:v('nf-fecha'), clienteId:clienteSeleccionadoId, archivo:archivosTx.nuevaFactura||null, creadoEn:new Date().toISOString() };
+      const g={ id:'f'+Date.now(), folio:nuevoFolioFactura(), numero:num, fecha:v('nf-fecha'), clienteId:clienteSeleccionadoId, archivo:archivosTx.nuevaFactura||null, creadoEn:new Date().toISOString(), usuario:usuarioActual() };
       facturas.push(g); guardarFacturas(); facturaGrupoId=g.id;
     } else if(sel){ facturaGrupoId=sel; }
   }
@@ -472,10 +487,14 @@ function guardarRegistro(){
   // Verificación en listas / billeteras (revisión del destinatario). Si se requirió, el resultado es obligatorio.
   const verifReq = v('tx-verif')||'no';
   if(verifReq==='si' && !v('tx-verif-res')){ alert('Registre el resultado de la revisión del destinatario (verificación en listas ONU/OFAC / billeteras).'); return; }
+  // ROE: si se pagó en efectivo, el equivalente USD es obligatorio para evaluar el umbral de USD 10.000.
+  const usdEquiv = parseFloat(v('tx-usd-equiv'))||0;
+  if(v('tx-efectivo')==='si' && usdEquiv<=0){ alert('Ingrese el equivalente en USD del pago en efectivo (para evaluar el umbral ROE de USD 10.000).'); return; }
 
   const prevFolio = editandoId ? (registros.find(r=>r.id===editandoId)||{}).folio : null;
   const prevCreado = editandoId ? (registros.find(r=>r.id===editandoId)||{}).creadoEn : null;
   const prevVerif = editandoId ? (registros.find(r=>r.id===editandoId)||{}).verificacionListas : null;
+  const prevRos = editandoId ? (registros.find(r=>r.id===editandoId)||{}).ros : null;
 
   const reg = {
     id: editandoId || Date.now().toString(),
@@ -488,8 +507,13 @@ function guardarRegistro(){
     transferencia:{ fecha:v('tx-fecha'), monto:parseFloat(v('tx-monto'))||0, moneda:v('tx-moneda'), montoDestino:parseFloat(v('tx-monto-dest'))||0, monedaDestino:v('tx-moneda-dest'), referencia:v('tx-ref'), canal:v('tx-canal'), proposito:v('tx-prop'), relacion:v('tx-rel'), observaciones:v('tx-obs') },
     // Verificación en listas / billeteras — revisión del destinatario; el resultado se almacena.
     verificacionListas: { requerida:verifReq, resultado:v('tx-verif-res'), comentario:v('tx-verif-obs'), fecha:(prevVerif&&prevVerif.fecha)||new Date().toISOString() },
-    // Pago en efectivo (ROE): se incluye en el Reporte de Operaciones en Efectivo cuando aplica.
+    // Seguimiento ROS: ante "Con coincidencias" queda PENDIENTE hasta registrar el envío o descartarlo con justificación.
+    ros: (verifReq==='si' && v('tx-verif-res')==='Con coincidencias') ? (prevRos||{estado:'pendiente'}) : (prevRos||null),
+    // Pago en efectivo (ROE): equivalente USD y marca automática si ≥ 10.000 USD.
     pagoEfectivo: v('tx-efectivo')||'no',
+    usdEquivalente: v('tx-efectivo')==='si' ? usdEquiv : null,
+    roeIncluir: v('tx-efectivo')==='si' && usdEquiv>=10000,
+    usuario: usuarioActual(),
     comprobante: archivosTx.comprobante,
     facturaModo: facturaModoActual,
     facturaIndividual: facturaIndividual,
@@ -506,13 +530,14 @@ function guardarRegistro(){
   limpiarForm(); actualizarDashboard(); verificarAlertas(); verificarPendientes();
   if(esNuevo && config.autoDescarga) descargarOperacion(reg.id);
   if(info.estado!=='verde') alert('Guardado parcial ('+folioDe(reg)+'): '+info.texto+'. Puede completar los documentos más tarde desde Transferencias.');
+  if(reg.ros && reg.ros.estado==='pendiente') alert('ATENCIÓN ('+folioDe(reg)+'): coincidencia en listas — debe enviarse un ROS de inmediato (Circular 62, c.11). Registre el envío (o el descarte justificado) desde el detalle de la transferencia.');
   showSection('registros');
 }
 function limpiarForm(){
-  ['ben-nombre','ben-doc','ben-pais','ben-ciudad','ben-banco','ben-cuenta','tx-monto','tx-monto-dest','tx-ref','tx-obs','nf-numero','nf-fecha','tx-verif-obs'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';});
+  ['ben-nombre','ben-doc','ben-pais','ben-ciudad','ben-banco','ben-cuenta','tx-monto','tx-monto-dest','tx-ref','tx-obs','nf-numero','nf-fecha','tx-verif-obs','tx-usd-equiv'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';});
   ['tx-moneda','tx-moneda-dest','tx-canal','tx-prop','tx-rel','tx-verif','tx-verif-res','tx-efectivo'].forEach(id=>{const e=document.getElementById(id); if(e)e.selectedIndex=0;});
   document.getElementById('tx-fecha').value=hoy();
-  toggleVerif();
+  toggleVerif(); toggleROE();
   archivosTx={comprobante:null,factura:null,otros:[],nuevaFactura:null};
   renderComprobante(); renderFactura(); renderNF(); renderOtros();
   setFacturaModo('individual'); document.getElementById('nueva-factura-box').style.display='none';
@@ -523,6 +548,20 @@ function limpiarForm(){
 function toggleVerif(){
   const box=document.getElementById('verif-detalle'); if(!box) return;
   box.style.display = v('tx-verif')==='si' ? '' : 'none';
+}
+// Pago en efectivo (ROE): pide el equivalente USD y avisa si la operación entra al reporte.
+function toggleROE(){
+  const box=document.getElementById('roe-detalle'); if(!box) return;
+  const si = v('tx-efectivo')==='si';
+  box.style.display = si ? '' : 'none';
+  if(si && v('tx-moneda')==='USD' && v('tx-monto') && !v('tx-usd-equiv')) document.getElementById('tx-usd-equiv').value=v('tx-monto');
+  avisoROE();
+}
+function avisoROE(){
+  const el=document.getElementById('roe-aviso'); if(!el) return;
+  const usd=parseFloat(v('tx-usd-equiv'))||0;
+  el.innerHTML = (v('tx-efectivo')==='si' && usd>=10000)
+    ? '<div class="alert-box alert-danger" style="margin-top:8px;"><i class="ti ti-alert-triangle"></i><div><strong>Esta operación se incluirá en el Reporte de Operaciones en Efectivo (ROE)</strong> — equivalente '+fmtNum(usd,2)+' USD ≥ 10.000 USD.</div></div>' : '';
 }
 
 // ═══════════════ RENDER TRANSFERENCIAS ═══════════════
@@ -535,13 +574,16 @@ function recordHTML(r){
   const vl=r.verificacionListas||{};
   const vlColor = vl.resultado==='Sin coincidencias'?'badge-green':(vl.resultado==='Con coincidencias'?'badge-red':'badge-amber');
   const verInfo = vl.requerida==='si' ? '<span class="badge '+(vl.resultado?vlColor:'badge-amber')+'" title="Verificación en listas / billeteras"><i class="ti ti-shield-check" style="font-size:12px;"></i> '+esc(vl.resultado||'sin resultado')+'</span> ' : '';
-  const efeInfo = r.pagoEfectivo==='si' ? '<span class="badge badge-red" title="Pago en efectivo (ROE)"><i class="ti ti-cash-banknote" style="font-size:12px;"></i> Efectivo</span>' : '';
+  const efeInfo = r.pagoEfectivo==='si' ? '<span class="badge badge-red" title="Pago en efectivo'+(r.roeIncluir?' — incluir en Reporte de Operaciones en Efectivo':'')+'"><i class="ti ti-cash-banknote" style="font-size:12px;"></i> Efectivo'+(r.roeIncluir?' · ROE':'')+'</span>' : '';
+  const rosInfo = (r.ros&&r.ros.estado) ? (r.ros.estado==='pendiente' ? '<span class="badge badge-red" title="Coincidencia en listas: debe enviarse un ROS de inmediato">ROS PENDIENTE</span>'
+    : r.ros.estado==='enviado' ? '<span class="badge badge-green" title="ROS folio '+esc(r.ros.folio||'')+'">ROS enviado</span>'
+    : '<span class="badge badge-amber" title="'+esc(r.ros.justificacion||'')+'">OS descartada</span>') : '';
   return '<div class="record-row">'+
     '<div class="record-icon"><i class="ti ti-transfer"></i></div>'+
     '<div class="record-info">'+
     '<h3>'+esc(clienteNombre(r.clienteId))+' <span style="color:var(--text-muted);font-weight:400;">→</span> '+esc(r.beneficiario.nombre)+'</h3>'+
     '<div class="record-detail">'+esc(r.transferencia.proposito||'')+' · <strong>'+monto+' '+mon+'</strong> · '+esc(r.beneficiario.pais||'')+'</div>'+
-    '<div class="record-meta"><span class="badge badge-amber">'+esc(folioDe(r))+'</span> · '+fecha+' · '+pill+' '+facInfo+' '+verInfo+' '+efeInfo+'</div>'+
+    '<div class="record-meta"><span class="badge badge-amber">'+esc(folioDe(r))+'</span> · '+fecha+' · '+pill+' '+facInfo+' '+verInfo+' '+efeInfo+' '+rosInfo+'</div>'+
     '</div>'+
     '<div class="record-actions">'+
     '<button class="btn btn-secondary btn-sm" onclick="verRegistro(\''+r.id+'\')" title="Ver"><i class="ti ti-eye"></i></button>'+
@@ -590,14 +632,37 @@ function verRegistro(id){
     row('Fecha',r.transferencia.fecha)+row('Monto enviado',fmtNum(r.transferencia.monto,2)+' '+r.transferencia.moneda)+row('Monto recibido',r.transferencia.montoDestino?fmtNum(r.transferencia.montoDestino,2)+' '+r.transferencia.monedaDestino:'—')+row('Propósito',r.transferencia.proposito)+row('Canal',r.transferencia.canal)+row('Referencia',r.transferencia.referencia)+row('Relación',r.transferencia.relacion)+(r.transferencia.observaciones?row('Obs.',r.transferencia.observaciones):'')+
     '<div class="detail-section">Verificación en listas / billeteras (revisión del destinatario)</div>'+
     row('¿Requirió verificación?',(r.verificacionListas||{}).requerida==='si'?'Sí':'No')+((r.verificacionListas||{}).requerida==='si'?row('Resultado',(r.verificacionListas||{}).resultado)+row('Comentario',(r.verificacionListas||{}).comentario):'')+
+    (r.ros ? '<div class="detail-section">Reporte de Operación Sospechosa (ROS)</div>'+
+      row('Estado', r.ros.estado==='pendiente'?'PENDIENTE — debe enviarse un ROS o descartarse con justificación':(r.ros.estado==='enviado'?'Enviado — folio '+(r.ros.folio||''):'Operación sospechosa DESCARTADA con justificación'))+
+      (r.ros.justificacion?row('Justificación del descarte',r.ros.justificacion):'')+
+      (r.ros.fecha?row('Fecha',(r.ros.fecha||'').replace('T',' ').slice(0,19)):'')+
+      (r.ros.usuario?row('Usuario',r.ros.usuario):'')+
+      (r.ros.estado==='pendiente'?'<div style="margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="marcarROSEnviado(\''+id+'\')"><i class="ti ti-send"></i> Registrar ROS enviado</button> <button class="btn btn-secondary btn-sm" onclick="descartarROS(\''+id+'\')"><i class="ti ti-ban"></i> Descartar con justificación</button></div>':'')
+    : '')+
     '<div class="detail-section">Pago en efectivo (ROE)</div>'+
-    row('¿Pagada en efectivo?',r.pagoEfectivo==='si'?'Sí — se incluye en el Reporte de Operaciones en Efectivo':'No')+
+    row('¿Pagada en efectivo?',r.pagoEfectivo==='si'?'Sí':'No')+
+    (r.pagoEfectivo==='si'?row('Equivalente USD',fmtNum(r.usdEquivalente||0,2)+' USD'+(r.roeIncluir?' — SE INCLUYE EN EL ROE (≥ 10.000 USD)':'')):'')+
     '<div class="detail-section">Documentos obligatorios</div>'+
     '<div class="file-list">'+docChipModal('Comprobante (hash/SWIFT)', r.comprobante, id, 'comprobante')+facHtml+'</div>'+
     '<div class="detail-section">Otros adjuntos</div>'+
     '<div class="file-list">'+otrosHtml+'</div>'+
     '<div style="margin-top:14px;"><button class="btn btn-primary btn-sm" onclick="descargarOperacion(\''+id+'\')"><i class="ti ti-folder-down"></i> Descargar carpeta (ZIP)</button> <button class="btn btn-secondary btn-sm" onclick="cerrarModal();editarRegistro(\''+id+'\')"><i class="ti ti-edit"></i> Editar / completar</button></div>';
   document.getElementById('modal-overlay').classList.add('open');
+}
+// ─── Seguimiento ROS: registrar envío al portal UAF o descartar con justificación (queda archivado) ───
+function marcarROSEnviado(id){
+  const r=registros.find(x=>x.id===id); if(!r) return;
+  const folio=prompt('N° de folio del ROS enviado en el portal de la UAF:'); if(folio===null) return;
+  if(!folio.trim()){ alert('Debe indicar el folio del ROS.'); return; }
+  r.ros={ estado:'enviado', folio:folio.trim(), fecha:new Date().toISOString(), usuario:usuarioActual() };
+  guardarDatos(); filtrar(); cerrarModal(); verRegistro(id);
+}
+function descartarROS(id){
+  const r=registros.find(x=>x.id===id); if(!r) return;
+  const j=prompt('Justificación del descarte (obligatoria).\nQuedará registrada como OPERACIÓN SOSPECHOSA DESCARTADA, disponible si la UAF la requiere:'); if(j===null) return;
+  if(!j.trim()){ alert('Debe indicar la justificación.'); return; }
+  r.ros={ estado:'descartado', justificacion:j.trim(), fecha:new Date().toISOString(), usuario:usuarioActual() };
+  guardarDatos(); filtrar(); cerrarModal(); verRegistro(id);
 }
 function descargarBlobData(data, nombre){ const a=document.createElement('a'); a.href=data; a.download=nombre; document.body.appendChild(a); a.click(); a.remove(); }
 function descargarDocReg(id,key){ const r=registros.find(x=>x.id===id); if(!r) return; let f=null; if(key==='comprobante')f=r.comprobante; else if(key==='facturaIndividual')f=r.facturaIndividual; else if(key==='facturaGrupo'){ const g=facturaPorId(r.facturaGrupoId); f=g?g.archivo:null; } if(f&&f.data) descargarBlobData(f.data,f.nombre); }
@@ -611,7 +676,7 @@ function editarRegistro(id){
   const set=(i,val)=>{const e=document.getElementById(i); if(e)e.value=val||'';};
   set('ben-nombre',r.beneficiario.nombre);set('ben-doc',r.beneficiario.documento);set('ben-pais',r.beneficiario.pais);set('ben-ciudad',r.beneficiario.ciudad);set('ben-banco',r.beneficiario.banco);set('ben-cuenta',r.beneficiario.cuenta);
   set('tx-fecha',r.transferencia.fecha);set('tx-monto',r.transferencia.monto);set('tx-moneda',r.transferencia.moneda);set('tx-monto-dest',r.transferencia.montoDestino);set('tx-moneda-dest',r.transferencia.monedaDestino);set('tx-ref',r.transferencia.referencia);set('tx-canal',r.transferencia.canal);set('tx-prop',r.transferencia.proposito);set('tx-rel',r.transferencia.relacion);set('tx-obs',r.transferencia.observaciones);
-  const vl=r.verificacionListas||{}; set('tx-verif',vl.requerida||'no'); set('tx-verif-res',vl.resultado); set('tx-verif-obs',vl.comentario); set('tx-efectivo',r.pagoEfectivo||'no'); toggleVerif();
+  const vl=r.verificacionListas||{}; set('tx-verif',vl.requerida||'no'); set('tx-verif-res',vl.resultado); set('tx-verif-obs',vl.comentario); set('tx-efectivo',r.pagoEfectivo||'no'); set('tx-usd-equiv',r.usdEquivalente||''); toggleVerif(); toggleROE();
   archivosTx={ comprobante:r.comprobante||null, factura:r.facturaIndividual||null, otros:(r.otros||[]).slice(), nuevaFactura:null };
   setFacturaModo(r.facturaModo||'individual');
   if(r.facturaModo==='agrupada'){ poblarSelectFacturas(); const sel=document.getElementById('tx-factura-grupo'); if(sel){ sel.value=r.facturaGrupoId||''; } document.getElementById('nueva-factura-box').style.display='none'; }
@@ -619,13 +684,13 @@ function editarRegistro(id){
   poblarComprasTx(); const tcsel=document.getElementById('tx-compra'); if(tcsel){ tcsel.value=r.compraId||''; } onSelectCompraTx();
   window.scrollTo({top:0,behavior:'smooth'});
 }
-function eliminarRegistro(id){ if(!confirm('¿Eliminar esta transferencia? No se puede deshacer.')) return; registros=registros.filter(r=>r.id!==id); guardarDatos(); actualizarDashboard(); verificarAlertas(); verificarPendientes(); filtrar(); }
+function eliminarRegistro(id){ const r=registros.find(x=>x.id===id); if(!r) return; const m=pedirMotivo('¿Eliminar esta transferencia?'); if(m===null) return; archivar('registro', r, m); registros=registros.filter(x=>x.id!==id); guardarDatos(); actualizarDashboard(); verificarAlertas(); verificarPendientes(); filtrar(); }
 
 // ═══════════════ FACTURAS ═══════════════
 function poblarFacCliente(){ const sel=document.getElementById('fac-cliente'); if(!sel) return; sel.innerHTML='<option value="">— Sin cliente específico —</option>'+clientes.map(c=>'<option value="'+c.id+'">'+esc(c.nombre)+' ('+esc(c.folio)+')</option>').join(''); }
 function guardarFacturaManual(){
   const num=v('fac-numero'); if(!num){ alert('Ingrese el N° de factura.'); return; }
-  const g={ id:'f'+Date.now(), folio:nuevoFolioFactura(), numero:num, fecha:v('fac-fecha'), clienteId:v('fac-cliente')||null, archivo:archivoFacManual||null, creadoEn:new Date().toISOString() };
+  const g={ id:'f'+Date.now(), folio:nuevoFolioFactura(), numero:num, fecha:v('fac-fecha'), clienteId:v('fac-cliente')||null, archivo:archivoFacManual||null, creadoEn:new Date().toISOString(), usuario:usuarioActual() };
   facturas.push(g); guardarFacturas(); guardarConfigData();
   archivoFacManual=null; document.getElementById('fac-numero').value=''; document.getElementById('fac-fecha').value=''; document.getElementById('list-fac').innerHTML='';
   renderFacturas(); actualizarDashboard();
@@ -652,7 +717,7 @@ function subirFacturaDoc(id){ subiendoFacturaId=id; document.getElementById('fil
 function eliminarFactura(id){
   const usada=registros.some(r=>r.facturaModo==='agrupada'&&r.facturaGrupoId===id);
   if(usada){ alert('No se puede eliminar: hay transferencias asociadas a esta factura.'); return; }
-  if(!confirm('¿Eliminar esta factura?')) return;
+  const fac=facturaPorId(id); const m=pedirMotivo('¿Eliminar esta factura?'); if(m===null) return; archivar('factura', fac, m);
   facturas=facturas.filter(f=>f.id!==id); guardarFacturas(); renderFacturas(); actualizarDashboard();
 }
 
@@ -708,8 +773,23 @@ function renderPendientes(){
 function calcularAlertas(){
   const mes=mesActual(); const delMes=registros.filter(r=>r.transferencia.fecha&&r.transferencia.fecha.startsWith(mes));
   const montos={}; delMes.forEach(r=>{ const m=r.transferencia.moneda||'???'; montos[m]=(montos[m]||0)+(r.transferencia.monto||0); });
-  const al=[]; Object.entries(config.umbrales).forEach(([m,u])=>{ if(!u||u<=0) return; const ac=montos[m]||0; if(ac>u) al.push({moneda:m,acumulado:ac,umbral:u,msg:'Acumulado '+fmtNum(ac)+' '+m+' supera el umbral de '+fmtNum(u)+' '+m+' ('+Math.round(ac/u*100)+'%)'}); });
-  return al;
+  const al=[]; Object.entries(config.umbrales).forEach(([m,u])=>{ if(!u||u<=0) return; const ac=montos[m]||0; if(ac>u) al.push({tipo:'umbral',key:'umbral|'+m+'|'+mes,moneda:m,acumulado:ac,umbral:u,msg:'Acumulado '+fmtNum(ac)+' '+m+' supera el umbral de '+fmtNum(u)+' '+m+' ('+Math.round(ac/u*100)+'%)'}); });
+  // Posible FRACCIONAMIENTO: mismo cliente y moneda, ventana de 30 días, 2+ operaciones
+  // cada una bajo el umbral pero cuya suma lo supera (señal de estructuración).
+  const hace30=new Date(Date.now()-30*24*3600*1000).toISOString().slice(0,10);
+  const porCli={};
+  registros.forEach(r=>{ const f=r.transferencia.fecha; if(!f||f<hace30) return; const m=r.transferencia.moneda||'???'; const u=config.umbrales[m]||0; if(u<=0) return; if((r.transferencia.monto||0)>=u) return; const k=(r.clienteId||'?')+'|'+m; (porCli[k]=porCli[k]||[]).push(r); });
+  Object.entries(porCli).forEach(([k,ops])=>{ if(ops.length<2) return; const p=k.split('|'); const u=config.umbrales[p[1]]||0; const tot=ops.reduce((s,r)=>s+(r.transferencia.monto||0),0);
+    if(tot>u) al.push({tipo:'fraccionamiento',key:'frac|'+k,clienteId:p[0],moneda:p[1],acumulado:tot,umbral:u,msg:ops.length+' operaciones de '+clienteNombre(p[0])+' en los últimos 30 días suman '+fmtNum(tot)+' '+p[1]+' — cada una bajo el umbral de '+fmtNum(u)+' '+p[1]+' (posible fraccionamiento).'}); });
+  // Excluir alertas descartadas con justificación (quedan en el registro de auditoría).
+  return al.filter(a=>!alertasDescartadas.some(d=>d.key===a.key));
+}
+// Descarte de alerta con justificación obligatoria (trazable para la UAF).
+function descartarAlerta(key){
+  const j=prompt('Justificación del descarte de esta alerta (obligatoria; queda registrada para auditoría):'); if(j===null) return;
+  if(!j.trim()){ alert('Debe indicar una justificación.'); return; }
+  alertasDescartadas.push({ id:'ad'+Date.now(), key:key, justificacion:j.trim(), usuario:usuarioActual(), fecha:new Date().toISOString() });
+  guardarAlertasDescartadas(); verificarAlertas(); renderAlertas();
 }
 function verificarAlertas(){ const a=calcularAlertas(); const badge=document.getElementById('nav-alert-badge'); if(a.length){ if(badge)badge.style.display='inline'; } else { if(badge)badge.style.display='none'; } }
 function renderAlertas(){
@@ -718,7 +798,8 @@ function renderAlertas(){
   const montos={}; delMes.forEach(r=>{ const m=r.transferencia.moneda||'???'; montos[m]=(montos[m]||0)+(r.transferencia.monto||0); });
   const alertas=calcularAlertas(); let html='';
   if(!alertas.length) html+='<div class="card"><div class="empty-state"><i class="ti ti-circle-check" style="color:#639922;"></i><p>Sin alertas activas este mes.</p></div></div>';
-  else alertas.forEach(a=>{ html+='<div class="alert-box alert-danger" style="margin-bottom:10px;"><i class="ti ti-alert-triangle"></i><div><strong>Alerta: '+a.moneda+'</strong><br>Acumulado en '+mes+': <strong>'+fmtNum(a.acumulado)+' '+a.moneda+'</strong>, supera el umbral de <strong>'+fmtNum(a.umbral)+' '+a.moneda+'</strong>.</div></div>'; });
+  else alertas.forEach(a=>{ html+='<div class="alert-box alert-danger" style="margin-bottom:10px;display:flex;align-items:flex-start;gap:8px;"><i class="ti ti-alert-triangle"></i><div style="flex:1;"><strong>'+(a.tipo==='fraccionamiento'?'Posible fraccionamiento — '+a.moneda:'Alerta de umbral: '+a.moneda)+'</strong><br>'+a.msg+'</div><button class="btn btn-secondary btn-sm" onclick="descartarAlerta(\''+a.key+'\')" title="Descartar con justificación"><i class="ti ti-x"></i> Descartar</button></div>'; });
+  if(alertasDescartadas.length){ html+='<div class="card" style="margin-bottom:10px;"><div class="card-title"><i class="ti ti-clipboard-off"></i> Alertas descartadas (registro de auditoría)</div>'+alertasDescartadas.slice(-10).reverse().map(d=>'<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;"><strong>'+esc(d.key)+'</strong> · '+(d.fecha||'').replace('T',' ').slice(0,16)+(d.usuario?' · '+esc(d.usuario):'')+'<br>Justificación: '+esc(d.justificacion)+'</div>').join('')+'</div>'; }
   html+='<div class="card"><div class="card-title"><i class="ti ti-chart-pie"></i> Resumen mensual por moneda — '+mes+'</div>';
   const ent=Object.entries(montos);
   if(!ent.length) html+='<p style="font-size:13px;color:var(--text-muted);">Sin operaciones este mes.</p>';
@@ -797,8 +878,8 @@ function exportCSV(){
   if(desde) lista=lista.filter(r=>r.transferencia.fecha>=desde);
   if(hasta) lista=lista.filter(r=>r.transferencia.fecha<=hasta);
   if(!lista.length){ alert('Sin registros en ese rango.'); return; }
-  const cols=['Folio','Estado','Cliente folio','Cliente','RUT cliente','Fecha','Beneficiario','Doc. beneficiario','País destino','Banco','Cuenta','Monto','Moneda','Monto destino','Moneda destino','Referencia','Canal','Propósito','Relación','¿Verificación listas?','Resultado revisión destinatario','Comentario revisión','¿Pago efectivo (ROE)?','Comprobante','N° factura','Factura','N° otros adjuntos','Registrado'];
-  const rows=lista.map(r=>{ const c=clientePorId(r.clienteId)||{}; const info=estadoInfo(r); const vl=r.verificacionListas||{}; return [folioDe(r),info.estado,c.folio||'',c.nombre||'',c.rut||'',r.transferencia.fecha,r.beneficiario.nombre,r.beneficiario.documento,r.beneficiario.pais,r.beneficiario.banco,r.beneficiario.cuenta,r.transferencia.monto,r.transferencia.moneda,r.transferencia.montoDestino,r.transferencia.monedaDestino,r.transferencia.referencia,r.transferencia.canal,r.transferencia.proposito,r.transferencia.relacion,vl.requerida==='si'?'Sí':'No',vl.resultado||'',vl.comentario||'',r.pagoEfectivo==='si'?'Sí':'No',info.comp?'Sí':'No',nFacturaDe(r),info.fact?'Sí':'No',(r.otros||[]).length,r.creadoEn]; });
+  const cols=['Folio','Estado','Cliente folio','Cliente','RUT cliente','Fecha','Beneficiario','Doc. beneficiario','País destino','Banco','Cuenta','Monto','Moneda','Monto destino','Moneda destino','Referencia','Canal','Propósito','Relación','¿Verificación listas?','Resultado revisión destinatario','Comentario revisión','¿Pago efectivo (ROE)?','Equivalente USD','Incluye ROE (>=10k)','Estado ROS','Folio/justificación ROS','Comprobante','N° factura','Factura','N° otros adjuntos','Usuario','Registrado'];
+  const rows=lista.map(r=>{ const c=clientePorId(r.clienteId)||{}; const info=estadoInfo(r); const vl=r.verificacionListas||{}; const ros=r.ros||{}; return [folioDe(r),info.estado,c.folio||'',c.nombre||'',c.rut||'',r.transferencia.fecha,r.beneficiario.nombre,r.beneficiario.documento,r.beneficiario.pais,r.beneficiario.banco,r.beneficiario.cuenta,r.transferencia.monto,r.transferencia.moneda,r.transferencia.montoDestino,r.transferencia.monedaDestino,r.transferencia.referencia,r.transferencia.canal,r.transferencia.proposito,r.transferencia.relacion,vl.requerida==='si'?'Sí':'No',vl.resultado||'',vl.comentario||'',r.pagoEfectivo==='si'?'Sí':'No',r.usdEquivalente||'',r.roeIncluir?'Sí':'No',ros.estado||'',ros.folio||ros.justificacion||'',info.comp?'Sí':'No',nFacturaDe(r),info.fact?'Sí':'No',(r.otros||[]).length,r.usuario||'',r.creadoEn]; });
   const csv=[cols,...rows].map(r=>r.map(c=>'"'+(c==null?'':c).toString().replace(/"/g,'""')+'"').join(',')).join('\n');
   descargarBlob(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}),'alun_transferencias_'+hoy()+'.csv');
 }
@@ -833,6 +914,10 @@ function importarJSON(file){
 }
 function eliminarTodo(){
   if(!confirm('¿Eliminar TODOS los datos (clientes, transferencias y facturas)? Es irreversible.\nExporte un respaldo antes.')) return;
+  // Retención UAF (5 años): se descarga un respaldo antes y se exige confirmación escrita.
+  const t=prompt('La normativa UAF exige conservar los registros por 5 años.\nSe descargará un respaldo JSON automáticamente antes de limpiar.\n\nEscriba ELIMINAR para confirmar:');
+  if(t!=='ELIMINAR'){ alert('Operación cancelada.'); return; }
+  try{ exportJSON(); }catch(e){}
   registros=[]; clientes=[]; facturas=[]; compras=[]; movimientos=[]; proveedores=[]; cuenta=[];
   guardarDatos(); guardarClientes(); guardarFacturas(); guardarCompras(); guardarMovimientos(); guardarProveedores(); guardarCuenta(); cuentasBancarias=[]; guardarCuentasBancarias(); cartolaLineas=[]; guardarCartola();
   actualizarDashboard(); verificarPendientes(); verificarAlertas(); renderRegistros([]);
@@ -979,7 +1064,7 @@ function poblarSelectsCompra(){
 function crearCompra(){
   const cli=v('co-cliente'); if(!cli){ alert('Seleccione el cliente.'); return; }
   const t=tipoOperacionActual;
-  let c={ id:'co'+Date.now(), folio:nuevoFolioCompra(), creadoEn:new Date().toISOString(), clienteId:cli, fecha:v('co-fecha')||hoy(), valuta:parseInt(v('co-valuta'))||0, observaciones:v('co-obs'), tipoOperacion:t, comision:0, comisionTipo:'monto', abonos:[] };
+  let c={ id:'co'+Date.now(), folio:nuevoFolioCompra(), creadoEn:new Date().toISOString(), usuario:usuarioActual(), clienteId:cli, fecha:v('co-fecha')||hoy(), valuta:parseInt(v('co-valuta'))||0, observaciones:v('co-obs'), tipoOperacion:t, comision:0, comisionTipo:'monto', abonos:[] };
   if(t==='compra_div'){
     const monto=parseFloat(v('cd-monto'))||0; if(monto<=0){ alert('Ingrese el monto de divisa que compra el cliente.'); return; }
     c.monedaCompra=v('cd-moneda'); c.montoCompra=monto; c.monedaPago='CLP'; c.tipoCambio=parseFloat(v('cd-tccli'))||0; c.tcProveedor=parseFloat(v('cd-tcprov'))||0; c.contraparte=v('cd-contra');
@@ -1022,7 +1107,7 @@ function renderCompras(){
 }
 function eliminarCompra(id){
   if(registros.some(r=>r.compraId===id)){ alert('No se puede eliminar: hay transferencias asociadas a esta operación.'); return; }
-  if(!confirm('¿Eliminar esta operación y sus abonos?')) return;
+  const co=compraPorId(id); const m=pedirMotivo('¿Eliminar esta operación y sus abonos?'); if(m===null) return; archivar('compra', co, m);
   compras=compras.filter(c=>c.id!==id); guardarCompras(); renderCompras(); renderSaldos(); actualizarDashboard();
 }
 function verCompra(id){
@@ -1062,7 +1147,7 @@ function registrarAbono(id){
   const c=compraPorId(id); if(!c) return;
   const monto=parseFloat(v('ab-monto'))||0; if(monto<=0){ alert('Ingrese el monto del abono.'); return; }
   if(!c.abonos) c.abonos=[];
-  c.abonos.push({ id:'ab'+Date.now(), fecha:v('ab-fecha')||hoy(), monto:monto, medio:v('ab-medio'), observacion:v('ab-obs'), comprobante:archivoAbono });
+  c.abonos.push({ id:'ab'+Date.now(), fecha:v('ab-fecha')||hoy(), monto:monto, medio:v('ab-medio'), observacion:v('ab-obs'), comprobante:archivoAbono, usuario:usuarioActual() });
   guardarCompras(); archivoAbono=null; renderCompras(); renderSaldos(); actualizarDashboard(); verCompra(id);
 }
 function quitarAbono(id,i){ const c=compraPorId(id); if(!c) return; if(!confirm('¿Eliminar este abono?')) return; c.abonos.splice(i,1); guardarCompras(); renderCompras(); renderSaldos(); verCompra(id); }
@@ -1256,7 +1341,7 @@ function registrarAbonoCuenta(){
   const tipo=v('cu-tipo'), moneda=v('cu-moneda');
   if(tipo==='retiro'){ const disp=saldoCuentaCliente(cli,moneda); if(monto>disp+0.001){ alert('El retiro ('+fmtNum(monto,2)+' '+moneda+') excede el saldo en cuenta disponible ('+fmtNum(disp,2)+' '+moneda+').'); return; } }
   const cbId=v('cu-banco'); const cb=cuentaBancariaPorId(cbId);
-  cuenta.unshift({ id:'cu'+Date.now(), folio:nuevoFolioCuenta(), creadoEn:new Date().toISOString(), clienteId:cli, fecha:v('cu-fecha')||hoy(), tipo:tipo, monto:monto, moneda:moneda, medio:v('cu-medio'), bancoCuentaId:cbId||null, bancoTxt: cb?etiquetaCB(cb):'', observacion:v('cu-obs'), comprobante:archivoCuenta });
+  cuenta.unshift({ id:'cu'+Date.now(), folio:nuevoFolioCuenta(), creadoEn:new Date().toISOString(), usuario:usuarioActual(), clienteId:cli, fecha:v('cu-fecha')||hoy(), tipo:tipo, monto:monto, moneda:moneda, medio:v('cu-medio'), bancoCuentaId:cbId||null, bancoTxt: cb?etiquetaCB(cb):'', observacion:v('cu-obs'), comprobante:archivoCuenta });
   guardarCuenta(); guardarConfigData(); archivoCuenta=null;
   ['cu-monto','cu-medio','cu-obs'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';});
   const cf=document.getElementById('cu-file'); if(cf) cf.innerHTML=''; document.getElementById('cu-fecha').value=hoy();
@@ -1266,7 +1351,7 @@ function registrarAbonoCuenta(){
 function eliminarMovCuenta(id){
   const m=cuenta.find(x=>x.id===id);
   if(m && m.tipo==='aplicado'){ alert('Este movimiento está aplicado a una operación. Quítelo desde la operación correspondiente.'); return; }
-  if(!confirm('¿Eliminar este movimiento de cuenta?')) return;
+  const mot=pedirMotivo('¿Eliminar este movimiento de cuenta?'); if(mot===null) return; archivar('cuenta', m, mot);
   cuenta=cuenta.filter(x=>x.id!==id); guardarCuenta(); renderCuenta(); renderSaldos();
 }
 function descargarCompCuenta(id){ const m=cuenta.find(x=>x.id===id); if(m&&m.comprobante&&m.comprobante.data) descargarBlobData(m.comprobante.data,m.comprobante.nombre); }

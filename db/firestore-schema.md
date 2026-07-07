@@ -31,8 +31,12 @@ transferencia:  { fecha, monto, moneda, montoDestino, monedaDestino, referencia,
 // Verificación en listas / billeteras (revisión del destinatario). Si requerida==='si',
 // 'resultado' es obligatorio; 'Con coincidencias' obliga a enviar ROS (Circular 62 c.11).
 verificacionListas: { requerida ('si'|'no'), resultado ('Sin coincidencias'|'Con coincidencias'|'Observado'), comentario, fecha },
-// Pago en efectivo (ROE): 'si' incluye la operación en el Reporte de Operaciones en Efectivo (≥ USD 10.000).
-pagoEfectivo: ('si'|'no'),
+// Pago en efectivo (ROE): equivalente USD obligatorio; roeIncluir=true si ≥ USD 10.000.
+pagoEfectivo: ('si'|'no'), usdEquivalente: number|null, roeIncluir: boolean,
+// Seguimiento ROS (solo si la verificación dio 'Con coincidencias'):
+//  pendiente → enviado {folio} | descartado {justificacion} = "operación sospechosa descartada".
+ros: { estado ('pendiente'|'enviado'|'descartado'), folio?, justificacion?, fecha, usuario } | null,
+usuario,                // auditoría: email de quien registró (presente en todas las colecciones)
 comprobante,            // → archivo en Storage
 facturaModo, facturaIndividual, facturaGrupoId,
 otros[]                 // → archivos en Storage
@@ -65,6 +69,10 @@ bancoCuentaId, bancoTxt, refCompra?, observacion, comprobante   // comprobante �
 
 ## 6) Auxiliares
 - `counters` — un doc por entidad para los folios correlativos (CL-/OP-/CO-/FAC-/AC-).
+- `archivo` — retención 5 años: todo registro eliminado se archiva aquí con
+  `{ tipo, clienteId, motivo, eliminadoPor, eliminadoEn, data (registro completo) }`.
+- `alertas_descartadas` — auditoría de alertas (umbral/fraccionamiento) descartadas:
+  `{ key, justificacion, usuario, fecha }`.
 - (Opcional) `proveedores`, `movimientos` (libro de caja), `cuentas_bancarias`.
 
 ---
