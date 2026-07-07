@@ -313,6 +313,9 @@
               </select>
             </div>
             <div class="form-group"><label>N° operación / referencia</label><input type="text" id="tx-ref" placeholder="Código interno"></div>
+            <div class="form-group"><label>Medio de pago <span class="required">*</span></label>
+              <select id="tx-medio" onchange="toggleEfectivo()"><option value="Transferencia bancaria">Transferencia bancaria</option><option value="Efectivo">Efectivo</option><option value="Cripto / USDT">Cripto / USDT</option><option value="Otro">Otro</option></select>
+            </div>
             <div class="form-group"><label>Canal utilizado</label>
               <select id="tx-canal"><option value="">Seleccionar...</option><option value="Sucursal">Sucursal presencial</option><option value="Plataforma digital">Plataforma digital</option><option value="Agente">Agente autorizado</option><option value="App móvil">App móvil</option></select>
             </div>
@@ -325,6 +328,18 @@
           </div>
           <div class="divider"></div>
           <div class="form-group"><label>Observaciones adicionales</label><textarea id="tx-obs" placeholder="Información relevante sobre la operación..."></textarea></div>
+        </div>
+
+        <!-- OPERACIÓN EN EFECTIVO (ROE) — visible solo si Medio de pago = Efectivo -->
+        <div class="card" id="card-efectivo" style="display:none;">
+          <div class="card-title"><i class="ti ti-cash-banknote"></i> Operación en efectivo — Registro y revisión del destinatario <span class="required">*</span></div>
+          <p class="section-subtitle">Toda operación pagada en efectivo queda registrada en el Registro de Operaciones en Efectivo (ROE) y requiere revisar al destinatario antes de continuar.</p>
+          <div class="form-grid">
+            <div class="form-group"><label>Resultado de la revisión del destinatario <span class="required">*</span></label>
+              <select id="efe-revision"><option value="">Seleccionar...</option><option value="Cumple">Cumple</option><option value="Observado">Observado</option><option value="No cumple">No cumple</option></select>
+            </div>
+          </div>
+          <div class="form-group"><label>Comentario de la revisión</label><textarea id="efe-comentario" placeholder="Detalle de la revisión realizada al destinatario (fuentes consultadas, hallazgos, justificación)..."></textarea></div>
         </div>
 
         <!-- DOCUMENTOS -->

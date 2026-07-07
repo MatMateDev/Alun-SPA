@@ -27,7 +27,10 @@ Form IDs `ben-*`, `tx-*`.
 ```
 id, folio, creadoEn, actualizadoEn, clienteId, compraId,
 beneficiario:   { nombre, documento, pais, ciudad, banco, cuenta },
-transferencia:  { fecha, monto, moneda, montoDestino, monedaDestino, referencia, canal, proposito, relacion, observaciones },
+transferencia:  { fecha, monto, moneda, montoDestino, monedaDestino, referencia, medioPago, canal, proposito, relacion, observaciones },
+// revisionDestinatario: obligatorio y solo se completa cuando transferencia.medioPago === 'Efectivo'
+// (Registro de Operaciones en Efectivo / ROE). null en el resto de los casos.
+revisionDestinatario: { resultado ('Cumple'|'Observado'|'No cumple'), comentario, fecha } | null,
 comprobante,            // → archivo en Storage
 facturaModo, facturaIndividual, facturaGrupoId,
 otros[]                 // → archivos en Storage
