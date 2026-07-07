@@ -27,6 +27,10 @@
     "araosma@gmail.com"
   ];
 
+  // Servicio propio en el VPS (BoxHosting) que guarda los documentos adjuntos.
+  // Reemplaza a Cloud Storage (que exige plan de pago). Ver /vps-uploads.
+  const UPLOADS_API_URL = "https://archivos.inversionesalun.cl";
+
   if (!window.firebase || typeof window.firebase.initializeApp !== "function") {
     console.error("[Alun] No se cargaron los SDK de Firebase (CDN).");
     return;
@@ -37,28 +41,54 @@
   }
 
   const A = (window.Alun = window.Alun || {});
-  A.config = { projectId: firebaseConfig.projectId, ALLOWED_EMAILS };
+  A.config = { projectId: firebaseConfig.projectId, ALLOWED_EMAILS, UPLOADS_API_URL };
   A.fb = window.firebase;
   A.authClient = window.firebase.auth();
   A.db = window.firebase.firestore();
-  A.storage = typeof window.firebase.storage === "function" ? window.firebase.storage() : null;
   A.models = A.models || {};
   A.controllers = A.controllers || {};
 
-  // Sube un archivo a la carpeta del cliente y devuelve { storagePath, url, nombre }.
+  // Sube un archivo al servicio propio del VPS (carpeta clientes/{clienteId}/{subcarpeta}).
   // file puede ser un File/Blob, o un objeto { nombre, data } con data = dataURL base64.
+  // Devuelve { storagePath, nombre, url:null } — no hay URL permanente: las descargas
+  // se resuelven al vuelo con linkDescargaTemporal() (enlace firmado, expira en 5 min).
   A.subirDocumento = async function (clienteId, subcarpeta, file) {
-    if (!A.storage || !clienteId || !file) return null;
+    const user = A.authClient.currentUser;
+    if (!user || !clienteId || !file) return null;
+    const token = await user.getIdToken();
     const nombre = file.name || file.nombre || "archivo";
-    const path = "clientes/" + clienteId + "/" + subcarpeta + "/" + Date.now() + "_" + nombre;
-    const ref = A.storage.ref().child(path);
+    let blob = file;
     if (file.data && typeof file.data === "string") {
-      await ref.putString(file.data, "data_url"); // base64 dataURL
-    } else {
-      await ref.put(file); // File/Blob
+      blob = await (await fetch(file.data)).blob(); // dataURL base64 -> Blob
     }
-    const url = await ref.getDownloadURL();
-    return { storagePath: path, url, nombre };
+    const fd = new FormData();
+    fd.append("file", blob, nombre);
+    fd.append("clienteId", clienteId);
+    fd.append("carpeta", subcarpeta);
+    const resp = await fetch(UPLOADS_API_URL + "/api/upload", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+      body: fd,
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || "No se pudo subir el archivo (" + resp.status + ").");
+    }
+    const data = await resp.json();
+    return { storagePath: data.storagePath, nombre: data.nombre, url: null };
+  };
+
+  // Enlace de descarga temporal (válido 5 min) para un documento ya subido.
+  A.linkDescargaTemporal = async function (storagePath) {
+    const user = A.authClient.currentUser;
+    if (!user || !storagePath) return null;
+    const token = await user.getIdToken();
+    const resp = await fetch(UPLOADS_API_URL + "/api/download-link?path=" + encodeURIComponent(storagePath), {
+      headers: { Authorization: "Bearer " + token },
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return UPLOADS_API_URL + data.url;
   };
 
   A.isAllowed = function (email) {

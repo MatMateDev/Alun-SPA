@@ -77,8 +77,10 @@ bancoCuentaId, bancoTxt, refCompra?, observacion, comprobante   // comprobante �
 
 ---
 
-## Cloud Storage — carpetas ligadas al cliente
-Bucket del proyecto `inversiones-alun-spa`. Todo documento cuelga del cliente:
+## Almacenamiento de documentos — VPS propio (BoxHosting), no Cloud Storage
+Servicio en `/vps-uploads` (Docker + Nginx + Certbot en el VPS de BoxHosting,
+`archivos.inversionesalun.cl`). Reemplaza a Cloud Storage para evitar el plan
+de pago de Firebase. Todo documento cuelga del cliente en disco:
 ```
 clientes/{clienteId}/ficha/...                 (cédula RL, constitución, vigencia, e-RUT, KYB, …)
 clientes/{clienteId}/transferencias/{registroId}/comprobante|otros...
@@ -86,4 +88,7 @@ clientes/{clienteId}/facturas/{facturaId}/...
 clientes/{clienteId}/compras/{compraId}/abonos/{abonoId}/...
 clientes/{clienteId}/cuenta/{movimientoId}/...
 ```
-En Firestore se guarda solo la **ruta** (`storagePath`) y la URL de descarga, no el binario.
+En Firestore se guarda solo la **ruta** (`storagePath`), nunca el binario ni una
+URL permanente. Cada descarga requiere sesión activa y genera un enlace firmado
+que expira en 5 minutos (`A.linkDescargaTemporal(storagePath)`) — los archivos
+viven únicamente en el VPS; el front no los retiene entre sesiones.
