@@ -5,6 +5,8 @@
  *  - login(email, password): inicia sesión.
  *  - guard(): protege app.html; redirige a index.html si no hay sesión.
  *  - cerrarSesion(): signOut y vuelta al login.
+ *  - iniciarInactividad(minutos, loginUrl): cierra la sesión sola si no hay
+ *    actividad del usuario (mouse/teclado/scroll/touch) durante ese tiempo.
  * ========================================================================== */
 (function () {
   "use strict";
@@ -60,5 +62,26 @@
   auth.cerrarSesion = async function (loginUrl) {
     await A.authClient.signOut();
     window.location.replace(loginUrl || "index.html");
+  };
+
+  // Cierra la sesión automáticamente tras N minutos sin actividad del usuario.
+  // Se reinicia el contador con mouse, teclado, scroll o toque en la pantalla.
+  let timerId = null;
+  auth.iniciarInactividad = function (minutos, loginUrl) {
+    const limite = (minutos || 15) * 60 * 1000;
+    const cerrar = () => {
+      auth.cerrarSesion(loginUrl).then(() => {
+        // Mensaje visible tras la redirección al login.
+        try { sessionStorage.setItem("alun_motivo_salida", "inactividad"); } catch (e) {}
+      });
+    };
+    const reiniciar = () => {
+      clearTimeout(timerId);
+      timerId = setTimeout(cerrar, limite);
+    };
+    ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "click"].forEach((evt) =>
+      document.addEventListener(evt, reiniciar, { passive: true })
+    );
+    reiniciar();
   };
 })();

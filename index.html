@@ -75,6 +75,14 @@
         if (u && A.isAllowed(u.email)) window.location.replace("app.html");
       });
 
+      // Avisa si la sesión se cerró sola por inactividad (15 min sin uso).
+      try {
+        if (sessionStorage.getItem("alun_motivo_salida") === "inactividad") {
+          show("Su sesión se cerró automáticamente por inactividad. Ingrese nuevamente.", "err");
+          sessionStorage.removeItem("alun_motivo_salida");
+        }
+      } catch (e) {}
+
       async function entrar() {
         msg.className = "msg";
         const btn = $("btn-entrar");

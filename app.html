@@ -53,6 +53,9 @@
         <strong>UAF Circular 62</strong>
         <p>Regla del Viaje — Registros conservados por 5 años mínimo</p>
       </div>
+      <button id="btn-cerrar-sesion" class="nav-item" style="width:100%;background:none;border:none;cursor:pointer;text-align:left;margin-top:8px;">
+        <i class="ti ti-logout"></i> Cerrar sesión
+      </button>
     </div>
   </aside>
 
@@ -781,7 +784,12 @@
   /* Proteccion de acceso: sin sesion valida y autorizada -> login */
   (async function(){
     var ok = await window.Alun.auth.guard("index.html");
-    if (ok) document.documentElement.style.visibility = "";
+    if (!ok) return;
+    document.documentElement.style.visibility = "";
+    // Cierre de sesion automatico tras 15 minutos sin actividad del usuario.
+    window.Alun.auth.iniciarInactividad(15, "index.html");
+    var btn = document.getElementById("btn-cerrar-sesion");
+    if (btn) btn.addEventListener("click", function(){ window.Alun.auth.cerrarSesion("index.html"); });
   })();
 </script>
 <!-- App existente del portal (secciones completas, almacenamiento local) -->
