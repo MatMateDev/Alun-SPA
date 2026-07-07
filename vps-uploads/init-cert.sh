@@ -12,7 +12,8 @@ docker compose up -d nginx
 echo "Esperando a que nginx responda..."
 sleep 3
 
-docker compose run --rm certbot certonly \
+# --entrypoint "" evita el bucle de renovación definido en docker-compose.yml
+docker compose run --rm --entrypoint "" certbot certbot certonly \
   --webroot -w /var/www/certbot \
   -d "$DOMAIN" --email "$EMAIL" --agree-tos --no-eff-email
 
