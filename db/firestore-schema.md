@@ -27,10 +27,12 @@ Form IDs `ben-*`, `tx-*`.
 ```
 id, folio, creadoEn, actualizadoEn, clienteId, compraId,
 beneficiario:   { nombre, documento, pais, ciudad, banco, cuenta },
-transferencia:  { fecha, monto, moneda, montoDestino, monedaDestino, referencia, medioPago, canal, proposito, relacion, observaciones },
-// revisionDestinatario: obligatorio y solo se completa cuando transferencia.medioPago === 'Efectivo'
-// (Registro de Operaciones en Efectivo / ROE). null en el resto de los casos.
-revisionDestinatario: { resultado ('Cumple'|'Observado'|'No cumple'), comentario, fecha } | null,
+transferencia:  { fecha, monto, moneda, montoDestino, monedaDestino, referencia, canal, proposito, relacion, observaciones },
+// Verificación en listas / billeteras (revisión del destinatario). Si requerida==='si',
+// 'resultado' es obligatorio; 'Con coincidencias' obliga a enviar ROS (Circular 62 c.11).
+verificacionListas: { requerida ('si'|'no'), resultado ('Sin coincidencias'|'Con coincidencias'|'Observado'), comentario, fecha },
+// Pago en efectivo (ROE): 'si' incluye la operación en el Reporte de Operaciones en Efectivo (≥ USD 10.000).
+pagoEfectivo: ('si'|'no'),
 comprobante,            // → archivo en Storage
 facturaModo, facturaIndividual, facturaGrupoId,
 otros[]                 // → archivos en Storage

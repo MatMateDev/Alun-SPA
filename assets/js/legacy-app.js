@@ -469,13 +469,13 @@ function guardarRegistro(){
     } else if(sel){ facturaGrupoId=sel; }
   }
 
-  const medioPago = v('tx-medio')||'Transferencia bancaria';
-  const esEfectivo = medioPago==='Efectivo';
-  if(esEfectivo && !v('efe-revision')){ alert('Debe registrar el resultado de la revisión del destinatario antes de guardar una operación en efectivo.'); return; }
+  // Verificación en listas / billeteras (revisión del destinatario). Si se requirió, el resultado es obligatorio.
+  const verifReq = v('tx-verif')||'no';
+  if(verifReq==='si' && !v('tx-verif-res')){ alert('Registre el resultado de la revisión del destinatario (verificación en listas ONU/OFAC / billeteras).'); return; }
 
   const prevFolio = editandoId ? (registros.find(r=>r.id===editandoId)||{}).folio : null;
   const prevCreado = editandoId ? (registros.find(r=>r.id===editandoId)||{}).creadoEn : null;
-  const prevRevision = editandoId ? (registros.find(r=>r.id===editandoId)||{}).revisionDestinatario : null;
+  const prevVerif = editandoId ? (registros.find(r=>r.id===editandoId)||{}).verificacionListas : null;
 
   const reg = {
     id: editandoId || Date.now().toString(),
@@ -485,9 +485,11 @@ function guardarRegistro(){
     clienteId: clienteSeleccionadoId,
     compraId: v('tx-compra')||null,
     beneficiario:{ nombre:v('ben-nombre'), documento:v('ben-doc'), pais:v('ben-pais'), ciudad:v('ben-ciudad'), banco:v('ben-banco'), cuenta:v('ben-cuenta') },
-    transferencia:{ fecha:v('tx-fecha'), monto:parseFloat(v('tx-monto'))||0, moneda:v('tx-moneda'), montoDestino:parseFloat(v('tx-monto-dest'))||0, monedaDestino:v('tx-moneda-dest'), referencia:v('tx-ref'), medioPago:medioPago, canal:v('tx-canal'), proposito:v('tx-prop'), relacion:v('tx-rel'), observaciones:v('tx-obs') },
-    // Registro de Operaciones en Efectivo (ROE): solo se completa cuando el medio de pago es Efectivo.
-    revisionDestinatario: esEfectivo ? { resultado:v('efe-revision'), comentario:v('efe-comentario'), fecha:(prevRevision&&prevRevision.fecha)||new Date().toISOString() } : null,
+    transferencia:{ fecha:v('tx-fecha'), monto:parseFloat(v('tx-monto'))||0, moneda:v('tx-moneda'), montoDestino:parseFloat(v('tx-monto-dest'))||0, monedaDestino:v('tx-moneda-dest'), referencia:v('tx-ref'), canal:v('tx-canal'), proposito:v('tx-prop'), relacion:v('tx-rel'), observaciones:v('tx-obs') },
+    // Verificación en listas / billeteras — revisión del destinatario; el resultado se almacena.
+    verificacionListas: { requerida:verifReq, resultado:v('tx-verif-res'), comentario:v('tx-verif-obs'), fecha:(prevVerif&&prevVerif.fecha)||new Date().toISOString() },
+    // Pago en efectivo (ROE): se incluye en el Reporte de Operaciones en Efectivo cuando aplica.
+    pagoEfectivo: v('tx-efectivo')||'no',
     comprobante: archivosTx.comprobante,
     facturaModo: facturaModoActual,
     facturaIndividual: facturaIndividual,
@@ -507,20 +509,20 @@ function guardarRegistro(){
   showSection('registros');
 }
 function limpiarForm(){
-  ['ben-nombre','ben-doc','ben-pais','ben-ciudad','ben-banco','ben-cuenta','tx-monto','tx-monto-dest','tx-ref','tx-obs','nf-numero','nf-fecha','efe-comentario'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';});
-  ['tx-moneda','tx-moneda-dest','tx-medio','tx-canal','tx-prop','tx-rel','efe-revision'].forEach(id=>{const e=document.getElementById(id); if(e)e.selectedIndex=0;});
+  ['ben-nombre','ben-doc','ben-pais','ben-ciudad','ben-banco','ben-cuenta','tx-monto','tx-monto-dest','tx-ref','tx-obs','nf-numero','nf-fecha','tx-verif-obs'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';});
+  ['tx-moneda','tx-moneda-dest','tx-canal','tx-prop','tx-rel','tx-verif','tx-verif-res','tx-efectivo'].forEach(id=>{const e=document.getElementById(id); if(e)e.selectedIndex=0;});
   document.getElementById('tx-fecha').value=hoy();
-  toggleEfectivo();
+  toggleVerif();
   archivosTx={comprobante:null,factura:null,otros:[],nuevaFactura:null};
   renderComprobante(); renderFactura(); renderNF(); renderOtros();
   setFacturaModo('individual'); document.getElementById('nueva-factura-box').style.display='none';
   const tc=document.getElementById('tx-compra'); if(tc) tc.value='';
   cambiarClienteTx(); editandoId=null;
 }
-// Muestra/oculta la tarjeta de "Operación en efectivo (ROE)" según el medio de pago elegido.
-function toggleEfectivo(){
-  const card=document.getElementById('card-efectivo'); if(!card) return;
-  card.style.display = v('tx-medio')==='Efectivo' ? '' : 'none';
+// Muestra/oculta el detalle de la verificación en listas (resultado de la revisión del destinatario).
+function toggleVerif(){
+  const box=document.getElementById('verif-detalle'); if(!box) return;
+  box.style.display = v('tx-verif')==='si' ? '' : 'none';
 }
 
 // ═══════════════ RENDER TRANSFERENCIAS ═══════════════
@@ -530,17 +532,16 @@ function recordHTML(r){
   const monto=fmtNum(r.transferencia.monto||0), mon=r.transferencia.moneda||'';
   const pill='<span class="status-pill pill-'+info.estado+'"><span class="status-dot status-'+info.estado+'"></span>'+info.texto+'</span>';
   const facInfo = r.facturaModo==='agrupada' ? '<span class="badge badge-blue" title="Factura agrupada"><i class="ti ti-files" style="font-size:12px;"></i> '+esc(nFacturaDe(r)||'agrupada')+'</span>' : '';
-  const esEfectivo = r.transferencia.medioPago==='Efectivo';
-  const rd=r.revisionDestinatario||{};
-  const rdColor = rd.resultado==='Cumple'?'badge-green':(rd.resultado==='No cumple'?'badge-red':'badge-amber');
-  const efeInfo = esEfectivo ? '<span class="badge badge-red" title="Operación en efectivo (ROE)"><i class="ti ti-cash-banknote" style="font-size:12px;"></i> Efectivo</span> '+
-    (rd.resultado ? '<span class="badge '+rdColor+'" title="Revisión del destinatario">'+esc(rd.resultado)+'</span>' : '<span class="badge badge-red" title="Falta revisión">Revisión pendiente</span>') : '';
+  const vl=r.verificacionListas||{};
+  const vlColor = vl.resultado==='Sin coincidencias'?'badge-green':(vl.resultado==='Con coincidencias'?'badge-red':'badge-amber');
+  const verInfo = vl.requerida==='si' ? '<span class="badge '+(vl.resultado?vlColor:'badge-amber')+'" title="Verificación en listas / billeteras"><i class="ti ti-shield-check" style="font-size:12px;"></i> '+esc(vl.resultado||'sin resultado')+'</span> ' : '';
+  const efeInfo = r.pagoEfectivo==='si' ? '<span class="badge badge-red" title="Pago en efectivo (ROE)"><i class="ti ti-cash-banknote" style="font-size:12px;"></i> Efectivo</span>' : '';
   return '<div class="record-row">'+
     '<div class="record-icon"><i class="ti ti-transfer"></i></div>'+
     '<div class="record-info">'+
     '<h3>'+esc(clienteNombre(r.clienteId))+' <span style="color:var(--text-muted);font-weight:400;">→</span> '+esc(r.beneficiario.nombre)+'</h3>'+
     '<div class="record-detail">'+esc(r.transferencia.proposito||'')+' · <strong>'+monto+' '+mon+'</strong> · '+esc(r.beneficiario.pais||'')+'</div>'+
-    '<div class="record-meta"><span class="badge badge-amber">'+esc(folioDe(r))+'</span> · '+fecha+' · '+pill+' '+facInfo+' '+efeInfo+'</div>'+
+    '<div class="record-meta"><span class="badge badge-amber">'+esc(folioDe(r))+'</span> · '+fecha+' · '+pill+' '+facInfo+' '+verInfo+' '+efeInfo+'</div>'+
     '</div>'+
     '<div class="record-actions">'+
     '<button class="btn btn-secondary btn-sm" onclick="verRegistro(\''+r.id+'\')" title="Ver"><i class="ti ti-eye"></i></button>'+
@@ -586,8 +587,11 @@ function verRegistro(id){
     '<div class="detail-section">Beneficiario</div>'+
     row('Nombre',r.beneficiario.nombre)+row('Documento',r.beneficiario.documento)+row('País',r.beneficiario.pais)+row('Ciudad',r.beneficiario.ciudad)+row('Banco',r.beneficiario.banco)+row('N° cuenta',r.beneficiario.cuenta)+
     '<div class="detail-section">Transferencia</div>'+
-    row('Fecha',r.transferencia.fecha)+row('Monto enviado',fmtNum(r.transferencia.monto,2)+' '+r.transferencia.moneda)+row('Monto recibido',r.transferencia.montoDestino?fmtNum(r.transferencia.montoDestino,2)+' '+r.transferencia.monedaDestino:'—')+row('Medio de pago',r.transferencia.medioPago||'Transferencia bancaria')+row('Propósito',r.transferencia.proposito)+row('Canal',r.transferencia.canal)+row('Referencia',r.transferencia.referencia)+row('Relación',r.transferencia.relacion)+(r.transferencia.observaciones?row('Obs.',r.transferencia.observaciones):'')+
-    (r.transferencia.medioPago==='Efectivo' ? '<div class="detail-section">Operación en efectivo — Revisión del destinatario (ROE)</div>'+row('Resultado',(r.revisionDestinatario||{}).resultado)+row('Comentario',(r.revisionDestinatario||{}).comentario)+row('Fecha revisión',((r.revisionDestinatario||{}).fecha||'').replace('T',' ').slice(0,19)) : '')+
+    row('Fecha',r.transferencia.fecha)+row('Monto enviado',fmtNum(r.transferencia.monto,2)+' '+r.transferencia.moneda)+row('Monto recibido',r.transferencia.montoDestino?fmtNum(r.transferencia.montoDestino,2)+' '+r.transferencia.monedaDestino:'—')+row('Propósito',r.transferencia.proposito)+row('Canal',r.transferencia.canal)+row('Referencia',r.transferencia.referencia)+row('Relación',r.transferencia.relacion)+(r.transferencia.observaciones?row('Obs.',r.transferencia.observaciones):'')+
+    '<div class="detail-section">Verificación en listas / billeteras (revisión del destinatario)</div>'+
+    row('¿Requirió verificación?',(r.verificacionListas||{}).requerida==='si'?'Sí':'No')+((r.verificacionListas||{}).requerida==='si'?row('Resultado',(r.verificacionListas||{}).resultado)+row('Comentario',(r.verificacionListas||{}).comentario):'')+
+    '<div class="detail-section">Pago en efectivo (ROE)</div>'+
+    row('¿Pagada en efectivo?',r.pagoEfectivo==='si'?'Sí — se incluye en el Reporte de Operaciones en Efectivo':'No')+
     '<div class="detail-section">Documentos obligatorios</div>'+
     '<div class="file-list">'+docChipModal('Comprobante (hash/SWIFT)', r.comprobante, id, 'comprobante')+facHtml+'</div>'+
     '<div class="detail-section">Otros adjuntos</div>'+
@@ -606,8 +610,8 @@ function editarRegistro(id){
   if(r.clienteId && clientePorId(r.clienteId)) seleccionarClienteTx(r.clienteId); else cambiarClienteTx();
   const set=(i,val)=>{const e=document.getElementById(i); if(e)e.value=val||'';};
   set('ben-nombre',r.beneficiario.nombre);set('ben-doc',r.beneficiario.documento);set('ben-pais',r.beneficiario.pais);set('ben-ciudad',r.beneficiario.ciudad);set('ben-banco',r.beneficiario.banco);set('ben-cuenta',r.beneficiario.cuenta);
-  set('tx-fecha',r.transferencia.fecha);set('tx-monto',r.transferencia.monto);set('tx-moneda',r.transferencia.moneda);set('tx-monto-dest',r.transferencia.montoDestino);set('tx-moneda-dest',r.transferencia.monedaDestino);set('tx-ref',r.transferencia.referencia);set('tx-medio',r.transferencia.medioPago||'Transferencia bancaria');set('tx-canal',r.transferencia.canal);set('tx-prop',r.transferencia.proposito);set('tx-rel',r.transferencia.relacion);set('tx-obs',r.transferencia.observaciones);
-  const rd=r.revisionDestinatario||{}; set('efe-revision',rd.resultado); set('efe-comentario',rd.comentario); toggleEfectivo();
+  set('tx-fecha',r.transferencia.fecha);set('tx-monto',r.transferencia.monto);set('tx-moneda',r.transferencia.moneda);set('tx-monto-dest',r.transferencia.montoDestino);set('tx-moneda-dest',r.transferencia.monedaDestino);set('tx-ref',r.transferencia.referencia);set('tx-canal',r.transferencia.canal);set('tx-prop',r.transferencia.proposito);set('tx-rel',r.transferencia.relacion);set('tx-obs',r.transferencia.observaciones);
+  const vl=r.verificacionListas||{}; set('tx-verif',vl.requerida||'no'); set('tx-verif-res',vl.resultado); set('tx-verif-obs',vl.comentario); set('tx-efectivo',r.pagoEfectivo||'no'); toggleVerif();
   archivosTx={ comprobante:r.comprobante||null, factura:r.facturaIndividual||null, otros:(r.otros||[]).slice(), nuevaFactura:null };
   setFacturaModo(r.facturaModo||'individual');
   if(r.facturaModo==='agrupada'){ poblarSelectFacturas(); const sel=document.getElementById('tx-factura-grupo'); if(sel){ sel.value=r.facturaGrupoId||''; } document.getElementById('nueva-factura-box').style.display='none'; }
@@ -753,8 +757,9 @@ function resumenOperacion(r){
   L.push(''); L.push('--- TRANSFERENCIA ---');
   L.push('Monto enviado: '+fmtNum(r.transferencia.monto,2)+' '+(r.transferencia.moneda||''));
   L.push('Monto recibido: '+(r.transferencia.montoDestino?fmtNum(r.transferencia.montoDestino,2)+' '+(r.transferencia.monedaDestino||''):'-'));
-  L.push('Propósito: '+(r.transferencia.proposito||'')); L.push('Medio de pago: '+(r.transferencia.medioPago||'Transferencia bancaria')); L.push('Canal: '+(r.transferencia.canal||'')); L.push('Referencia: '+(r.transferencia.referencia||'')); L.push('Relación: '+(r.transferencia.relacion||'')); L.push('Observaciones: '+(r.transferencia.observaciones||''));
-  if(r.transferencia.medioPago==='Efectivo'){ const rd=r.revisionDestinatario||{}; L.push(''); L.push('--- OPERACIÓN EN EFECTIVO (ROE) — Revisión del destinatario ---'); L.push('Resultado: '+(rd.resultado||'')); L.push('Comentario: '+(rd.comentario||'')); }
+  L.push('Propósito: '+(r.transferencia.proposito||'')); L.push('Canal: '+(r.transferencia.canal||'')); L.push('Referencia: '+(r.transferencia.referencia||'')); L.push('Relación: '+(r.transferencia.relacion||'')); L.push('Observaciones: '+(r.transferencia.observaciones||''));
+  const vl=r.verificacionListas||{}; L.push(''); L.push('--- VERIFICACIÓN EN LISTAS / BILLETERAS (revisión del destinatario) ---'); L.push('¿Requirió verificación?: '+(vl.requerida==='si'?'Sí':'No')); if(vl.requerida==='si'){ L.push('Resultado: '+(vl.resultado||'')); L.push('Comentario: '+(vl.comentario||'')); }
+  L.push('Pago en efectivo (ROE): '+(r.pagoEfectivo==='si'?'Sí':'No'));
   L.push(''); L.push('--- DOCUMENTOS ---');
   L.push('Comprobante (hash/SWIFT): '+(comprobantePresente(r)?'SÍ':'PENDIENTE'));
   if(r.facturaModo==='agrupada'){ const g=facturaPorId(r.facturaGrupoId)||{}; L.push('Factura: AGRUPADA N° '+(g.numero||'')+' ('+(g.archivo&&g.archivo.data?'con documento':'PENDIENTE')+')'); }
@@ -792,8 +797,8 @@ function exportCSV(){
   if(desde) lista=lista.filter(r=>r.transferencia.fecha>=desde);
   if(hasta) lista=lista.filter(r=>r.transferencia.fecha<=hasta);
   if(!lista.length){ alert('Sin registros en ese rango.'); return; }
-  const cols=['Folio','Estado','Cliente folio','Cliente','RUT cliente','Fecha','Beneficiario','Doc. beneficiario','País destino','Banco','Cuenta','Monto','Moneda','Monto destino','Moneda destino','Referencia','Medio de pago','Canal','Propósito','Relación','Revisión destinatario (efectivo)','Comentario revisión','Comprobante','N° factura','Factura','N° otros adjuntos','Registrado'];
-  const rows=lista.map(r=>{ const c=clientePorId(r.clienteId)||{}; const info=estadoInfo(r); const rd=r.revisionDestinatario||{}; return [folioDe(r),info.estado,c.folio||'',c.nombre||'',c.rut||'',r.transferencia.fecha,r.beneficiario.nombre,r.beneficiario.documento,r.beneficiario.pais,r.beneficiario.banco,r.beneficiario.cuenta,r.transferencia.monto,r.transferencia.moneda,r.transferencia.montoDestino,r.transferencia.monedaDestino,r.transferencia.referencia,r.transferencia.medioPago||'Transferencia bancaria',r.transferencia.canal,r.transferencia.proposito,r.transferencia.relacion,rd.resultado||'',rd.comentario||'',info.comp?'Sí':'No',nFacturaDe(r),info.fact?'Sí':'No',(r.otros||[]).length,r.creadoEn]; });
+  const cols=['Folio','Estado','Cliente folio','Cliente','RUT cliente','Fecha','Beneficiario','Doc. beneficiario','País destino','Banco','Cuenta','Monto','Moneda','Monto destino','Moneda destino','Referencia','Canal','Propósito','Relación','¿Verificación listas?','Resultado revisión destinatario','Comentario revisión','¿Pago efectivo (ROE)?','Comprobante','N° factura','Factura','N° otros adjuntos','Registrado'];
+  const rows=lista.map(r=>{ const c=clientePorId(r.clienteId)||{}; const info=estadoInfo(r); const vl=r.verificacionListas||{}; return [folioDe(r),info.estado,c.folio||'',c.nombre||'',c.rut||'',r.transferencia.fecha,r.beneficiario.nombre,r.beneficiario.documento,r.beneficiario.pais,r.beneficiario.banco,r.beneficiario.cuenta,r.transferencia.monto,r.transferencia.moneda,r.transferencia.montoDestino,r.transferencia.monedaDestino,r.transferencia.referencia,r.transferencia.canal,r.transferencia.proposito,r.transferencia.relacion,vl.requerida==='si'?'Sí':'No',vl.resultado||'',vl.comentario||'',r.pagoEfectivo==='si'?'Sí':'No',info.comp?'Sí':'No',nFacturaDe(r),info.fact?'Sí':'No',(r.otros||[]).length,r.creadoEn]; });
   const csv=[cols,...rows].map(r=>r.map(c=>'"'+(c==null?'':c).toString().replace(/"/g,'""')+'"').join(',')).join('\n');
   descargarBlob(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}),'alun_transferencias_'+hoy()+'.csv');
 }
