@@ -12,7 +12,7 @@ service firebase.storage {
     function autorizado() {
       return request.auth != null
         && request.auth.token.email in [
-          'felipe@inversionesalun.cl'
+          'felgonzpu@gmail.com'
         ];
     }
 

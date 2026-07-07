@@ -10,19 +10,20 @@
   "use strict";
 
   const firebaseConfig = {
-    apiKey: "AIzaSyBWqYXQrTlYfn_ihuBS_AgzP4H7t0_DU68",
-    authDomain: "inversiones-alun-spa.firebaseapp.com",
-    projectId: "inversiones-alun-spa",
-    storageBucket: "inversiones-alun-spa.firebasestorage.app",
-    messagingSenderId: "181011612076",
-    appId: "1:181011612076:web:50d7b424ddf0a99120ba09",
-    measurementId: "G-WQ422XW2W5",
+    apiKey: "AIzaSyBQwVuTANgdUMZoZWDmM8cdYiLCmL-OtmA",
+    authDomain: "inversiones-alun-spa-4c122.firebaseapp.com",
+    databaseURL: "https://inversiones-alun-spa-4c122-default-rtdb.firebaseio.com",
+    projectId: "inversiones-alun-spa-4c122",
+    storageBucket: "inversiones-alun-spa-4c122.firebasestorage.app",
+    messagingSenderId: "994437641963",
+    appId: "1:994437641963:web:9c41e33cbb8082d3ae70ae",
+    measurementId: "G-XLGXYYCSSV",
   };
 
   // Correos autorizados a ingresar al portal (defensa extra; además solo
   // existen como usuarios en Firebase Authentication los que tú crees).
   const ALLOWED_EMAILS = [
-    "felipe@inversionesalun.cl",
+    "felgonzpu@gmail.com",
   ];
 
   if (!window.firebase || typeof window.firebase.initializeApp !== "function") {
