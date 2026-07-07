@@ -80,11 +80,50 @@
     };
   });
 
-  // Empuje inicial: sube a la nube lo que ya exista en localStorage.
-  A.auth.sesion().then((u) => {
-    if (u) MAP.forEach((entry) => upsert(entry).catch(() => {}));
+  // BAJADA (pull): trae de Firestore lo creado desde cualquier equipo/usuario y lo
+  // fusiona con lo local por id (gana la versión con actualizadoEn/creadoEn más
+  // reciente). Así todos los correos autorizados ven el registro compartido.
+  async function pull() {
+    let huboCambios = false;
+    for (const entry of MAP) {
+      try {
+        const snap = await A.db.collection(entry.col).get();
+        if (snap.empty) continue;
+        let local;
+        try { local = JSON.parse(localStorage.getItem(entry.key) || "[]"); } catch (e) { local = []; }
+        if (!Array.isArray(local)) local = [];
+        const porId = {};
+        local.forEach((x) => { if (x && x.id) porId[x.id] = x; });
+        snap.docs.forEach((d) => {
+          const remoto = d.data();
+          const id = remoto.id || d.id;
+          const loc = porId[id];
+          const rMod = remoto.actualizadoEn || remoto.creadoEn || "";
+          const lMod = loc ? (loc.actualizadoEn || loc.creadoEn || "") : null;
+          if (!loc || (rMod && rMod > lMod)) { porId[id] = Object.assign({}, remoto, { id }); huboCambios = true; }
+        });
+        const merged = Object.values(porId).sort((a, b) => String(b.creadoEn || "").localeCompare(String(a.creadoEn || "")));
+        localStorage.setItem(entry.key, JSON.stringify(merged));
+      } catch (e) {
+        console.warn("[sync] pull " + entry.col + ":", e.message);
+      }
+    }
+    return huboCambios;
+  }
+
+  // Al iniciar sesión: primero BAJA y fusiona; si llegó algo nuevo recarga la página
+  // (una sola vez) para que el portal lo muestre; luego SUBE lo local pendiente.
+  A.auth.sesion().then(async (u) => {
+    if (!u) return;
+    const cambios = await pull();
+    if (cambios && !sessionStorage.getItem("alun_pull_ok")) {
+      sessionStorage.setItem("alun_pull_ok", "1");
+      location.reload();
+      return;
+    }
+    MAP.forEach((entry) => upsert(entry).catch(() => {}));
   });
 
-  A.sync = { ahora: () => MAP.forEach((e) => upsert(e)) };
-  console.info("[sync] Sincronización a Firestore activa.");
+  A.sync = { ahora: () => MAP.forEach((e) => upsert(e)), pull };
+  console.info("[sync] Sincronización bidireccional con Firestore activa.");
 })();

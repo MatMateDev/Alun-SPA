@@ -51,10 +51,22 @@ function clienteNombre(id){ const c=clientePorId(id); return c?c.nombre:'(client
 function facturaPorId(id){ return facturas.find(f=>f.id===id); }
 
 // ═══════════════ ESTADO DOCUMENTAL (SEMÁFORO) ═══════════════
-function comprobantePresente(r){ return !!(r.comprobante && r.comprobante.data); }
+// Un documento está presente si vive en este navegador (data base64) o ya fue subido al VPS (storagePath).
+function docPresente(f){ return !!(f && (f.data || f.storagePath)); }
+// Descarga unificada: local (base64) o remota (enlace temporal firmado del VPS, expira en 5 min).
+function descargarArchivo(f){
+  if(!f) return;
+  if(f.data){ descargarBlobData(f.data, f.nombre); return; }
+  if(f.storagePath && window.Alun && window.Alun.linkDescargaTemporal){
+    window.Alun.linkDescargaTemporal(f.storagePath).then(u=>{ if(u) window.open(u,'_blank'); else alert('No se pudo generar el enlace de descarga. Reintente.'); });
+    return;
+  }
+  alert('Documento no disponible en este equipo.');
+}
+function comprobantePresente(r){ return docPresente(r.comprobante); }
 function facturaPresente(r){
-  if(r.facturaModo==='agrupada'){ const g=facturaPorId(r.facturaGrupoId); return !!(g && g.archivo && g.archivo.data); }
-  return !!(r.facturaIndividual && r.facturaIndividual.data);
+  if(r.facturaModo==='agrupada'){ const g=facturaPorId(r.facturaGrupoId); return !!(g && docPresente(g.archivo)); }
+  return docPresente(r.facturaIndividual);
 }
 function estadoDocs(r){ const c=comprobantePresente(r), f=facturaPresente(r); return (c&&f)?'verde':(c||f)?'amarillo':'rojo'; }
 function estadoInfo(r){
@@ -275,7 +287,7 @@ function renderClientes(){
 }
 
 function docLineCli(label,f,dlCall){
-  if(!f||!f.data) return '<div class="detail-row"><span class="detail-label">'+label+'</span><span class="detail-value" style="color:#A32D2D;">— pendiente —</span></div>';
+  if(!docPresente(f)) return '<div class="detail-row"><span class="detail-label">'+label+'</span><span class="detail-value" style="color:#A32D2D;">— pendiente —</span></div>';
   return '<div class="file-item"><i class="ti '+(f.tipo&&f.tipo.includes('image')?'ti-photo':'ti-file')+'"></i><span><strong>'+label+':</strong> '+esc(f.nombre)+'</span><button class="btn btn-secondary btn-sm" onclick="'+dlCall+'"><i class="ti ti-download"></i></button></div>';
 }
 function verCliente(id){
@@ -307,9 +319,9 @@ function verCliente(id){
   document.getElementById('modal-content').innerHTML=html;
   document.getElementById('modal-overlay').classList.add('open');
 }
-function descargarDocCli(id,key){ const c=clientePorId(id); if(!c||!c.docs) return; const f=c.docs[key]; if(f&&f.data) descargarBlobData(f.data,f.nombre); }
-function descargarDocCliMulti(id,key,i){ const c=clientePorId(id); if(!c||!c.docs) return; const f=(c.docs[key]||[])[i]; if(f&&f.data) descargarBlobData(f.data,f.nombre); }
-function descargarBfDoc(id,bi,tipo){ const c=clientePorId(id); if(!c) return; const b=(c.beneficiarios||[])[bi]; if(b&&b[tipo]&&b[tipo].data) descargarBlobData(b[tipo].data,b[tipo].nombre); }
+function descargarDocCli(id,key){ const c=clientePorId(id); if(!c||!c.docs) return; const f=c.docs[key]; descargarArchivo(f); }
+function descargarDocCliMulti(id,key,i){ const c=clientePorId(id); if(!c||!c.docs) return; const f=(c.docs[key]||[])[i]; descargarArchivo(f); }
+function descargarBfDoc(id,bi,tipo){ const c=clientePorId(id); if(!c) return; const b=(c.beneficiarios||[])[bi]; if(b) descargarArchivo(b[tipo]); }
 
 function resumenCliente(c){
   const L=[]; L.push('FICHA CLIENTE '+(c.folio||'')+' — '+(c.nombre||''));
@@ -425,7 +437,7 @@ function actualizarTagFactura(){
   const b=document.getElementById('bucket-factura'), t=document.getElementById('tag-factura');
   let tiene=false;
   if(facturaModoActual==='individual') tiene=!!archivosTx.factura;
-  else { const sel=v('tx-factura-grupo'); if(sel==='__nueva__') tiene=!!archivosTx.nuevaFactura; else if(sel){ const g=facturaPorId(sel); tiene=!!(g&&g.archivo&&g.archivo.data); } }
+  else { const sel=v('tx-factura-grupo'); if(sel==='__nueva__') tiene=!!archivosTx.nuevaFactura; else if(sel){ const g=facturaPorId(sel); tiene=!!(g&&docPresente(g.archivo)); } }
   if(tiene){ b.classList.add('has'); b.classList.remove('req'); t.className='ok-tag'; t.textContent='cargada'; }
   else { b.classList.add('req'); b.classList.remove('has'); t.className='req-tag'; t.textContent='obligatorio'; }
 }
@@ -609,7 +621,7 @@ function filtrar(){
 
 // ═══════════════ VER / EDITAR / ELIMINAR TRANSFERENCIA ═══════════════
 function docChipModal(label, f, regId, key){
-  if(!f||!f.data) return '<div class="detail-row"><span class="detail-label">'+label+'</span><span class="detail-value" style="color:#A32D2D;">— pendiente —</span></div>';
+  if(!docPresente(f)) return '<div class="detail-row"><span class="detail-label">'+label+'</span><span class="detail-value" style="color:#A32D2D;">— pendiente —</span></div>';
   return '<div class="file-item"><i class="ti '+(f.tipo&&f.tipo.includes('image')?'ti-photo':'ti-file')+'"></i><span><strong>'+label+':</strong> '+esc(f.nombre)+'</span><button class="btn btn-secondary btn-sm" onclick="descargarDocReg(\''+regId+'\',\''+key+'\')"><i class="ti ti-download"></i></button></div>';
 }
 function verRegistro(id){
@@ -665,8 +677,8 @@ function descartarROS(id){
   guardarDatos(); filtrar(); cerrarModal(); verRegistro(id);
 }
 function descargarBlobData(data, nombre){ const a=document.createElement('a'); a.href=data; a.download=nombre; document.body.appendChild(a); a.click(); a.remove(); }
-function descargarDocReg(id,key){ const r=registros.find(x=>x.id===id); if(!r) return; let f=null; if(key==='comprobante')f=r.comprobante; else if(key==='facturaIndividual')f=r.facturaIndividual; else if(key==='facturaGrupo'){ const g=facturaPorId(r.facturaGrupoId); f=g?g.archivo:null; } if(f&&f.data) descargarBlobData(f.data,f.nombre); }
-function descargarOtro(id,i){ const r=registros.find(x=>x.id===id); if(!r) return; const f=(r.otros||[])[i]; if(f&&f.data) descargarBlobData(f.data,f.nombre); }
+function descargarDocReg(id,key){ const r=registros.find(x=>x.id===id); if(!r) return; let f=null; if(key==='comprobante')f=r.comprobante; else if(key==='facturaIndividual')f=r.facturaIndividual; else if(key==='facturaGrupo'){ const g=facturaPorId(r.facturaGrupoId); f=g?g.archivo:null; } descargarArchivo(f); }
+function descargarOtro(id,i){ const r=registros.find(x=>x.id===id); if(!r) return; const f=(r.otros||[])[i]; descargarArchivo(f); }
 
 function editarRegistro(id){
   const r=registros.find(x=>x.id===id); if(!r) return;
@@ -700,7 +712,7 @@ function renderFacturas(){
   const el=document.getElementById('facturas-list');
   if(!facturas.length){ el.innerHTML='<div class="empty-state"><i class="ti ti-file-off"></i><p>No hay facturas comunes. Cree una arriba o desde una transferencia agrupada.</p></div>'; return; }
   el.innerHTML=facturas.map(g=>{
-    const tiene=g.archivo&&g.archivo.data;
+    const tiene=docPresente(g.archivo);
     const nTx=registros.filter(r=>r.facturaModo==='agrupada'&&r.facturaGrupoId===g.id).length;
     return '<div class="record-row"><div class="record-icon"><i class="ti ti-file-invoice"></i></div>'+
       '<div class="record-info"><h3>'+esc(g.numero)+' <span class="badge badge-amber">'+esc(g.folio)+'</span> '+(tiene?'<span class="status-pill pill-verde"><span class="status-dot status-verde"></span>con documento</span>':'<span class="status-pill pill-rojo"><span class="status-dot status-rojo"></span>sin documento</span>')+'</h3>'+
@@ -711,7 +723,7 @@ function renderFacturas(){
       '</div></div>';
   }).join('');
 }
-function descargarFacturaDoc(id){ const g=facturaPorId(id); if(g&&g.archivo&&g.archivo.data) descargarBlobData(g.archivo.data,g.archivo.nombre); }
+function descargarFacturaDoc(id){ const g=facturaPorId(id); if(g) descargarArchivo(g.archivo); }
 let subiendoFacturaId=null;
 function subirFacturaDoc(id){ subiendoFacturaId=id; document.getElementById('file-fac-replace').click(); }
 function eliminarFactura(id){
@@ -843,7 +855,7 @@ function resumenOperacion(r){
   L.push('Pago en efectivo (ROE): '+(r.pagoEfectivo==='si'?'Sí':'No'));
   L.push(''); L.push('--- DOCUMENTOS ---');
   L.push('Comprobante (hash/SWIFT): '+(comprobantePresente(r)?'SÍ':'PENDIENTE'));
-  if(r.facturaModo==='agrupada'){ const g=facturaPorId(r.facturaGrupoId)||{}; L.push('Factura: AGRUPADA N° '+(g.numero||'')+' ('+(g.archivo&&g.archivo.data?'con documento':'PENDIENTE')+')'); }
+  if(r.facturaModo==='agrupada'){ const g=facturaPorId(r.facturaGrupoId)||{}; L.push('Factura: AGRUPADA N° '+(g.numero||'')+' ('+(docPresente(g.archivo)?'con documento':'PENDIENTE')+')'); }
   else L.push('Factura: '+(facturaPresente(r)?'SÍ (individual)':'PENDIENTE'));
   L.push('Otros adjuntos: '+((r.otros||[]).length));
   return L.join('\n');
@@ -1115,7 +1127,7 @@ function verCompra(id){
   const row=(l,val)=>'<div class="detail-row"><span class="detail-label">'+l+'</span><span class="detail-value">'+esc(val)+'</span></div>';
   const req=montoRequeridoCompra(c), pag=abonosTotal(c), porPagar=saldoPorPagarCompra(c), favor=saldoAFavorCompra(c);
   const spt=saldoPorTransferirCompra(c), trans=transferidoDeCompra(c), ep=estadoPagoCompra(c), col=colorEstado(ep), gan=gananciaCompra(c);
-  const abonosHtml=(c.abonos||[]).length ? c.abonos.map((a,i)=>'<div class="file-item"><i class="ti '+((parseFloat(a.monto)||0)<0?'ti-arrow-up-right':'ti-cash')+'"></i><span>'+esc(a.fecha)+' · <strong>'+fmtNum(a.monto,2)+' '+esc(c.monedaPago)+'</strong>'+(a.medio?' · '+esc(a.medio):'')+(a.observacion?' · '+esc(a.observacion):'')+'</span>'+(a.comprobante&&a.comprobante.data?'<button class="btn btn-secondary btn-sm" onclick="descargarAbono(\''+id+'\','+i+')"><i class="ti ti-download"></i></button>':'')+'<button class="btn btn-danger btn-sm" onclick="quitarAbono(\''+id+'\','+i+')"><i class="ti ti-x"></i></button></div>').join('') : '<p style="font-size:12px;color:var(--text-muted);">Sin abonos registrados.</p>';
+  const abonosHtml=(c.abonos||[]).length ? c.abonos.map((a,i)=>'<div class="file-item"><i class="ti '+((parseFloat(a.monto)||0)<0?'ti-arrow-up-right':'ti-cash')+'"></i><span>'+esc(a.fecha)+' · <strong>'+fmtNum(a.monto,2)+' '+esc(c.monedaPago)+'</strong>'+(a.medio?' · '+esc(a.medio):'')+(a.observacion?' · '+esc(a.observacion):'')+'</span>'+(docPresente(a.comprobante)?'<button class="btn btn-secondary btn-sm" onclick="descargarAbono(\''+id+'\','+i+')"><i class="ti ti-download"></i></button>':'')+'<button class="btn btn-danger btn-sm" onclick="quitarAbono(\''+id+'\','+i+')"><i class="ti ti-x"></i></button></div>').join('') : '<p style="font-size:12px;color:var(--text-muted);">Sin abonos registrados.</p>';
   const txList=registros.filter(r=>r.compraId===id);
   const txHtml=txList.length ? txList.map(r=>'<div class="file-item"><i class="ti ti-transfer"></i><span>'+esc(folioDe(r))+' · '+fmtNum(r.transferencia.monto)+' '+esc(r.transferencia.moneda)+' → '+esc(r.beneficiario.nombre)+'</span></div>').join('') : '<p style="font-size:12px;color:var(--text-muted);">Sin transferencias asociadas.</p>';
   const credSrc=compras.filter(x=>x.clienteId===c.clienteId && x.id!==id && saldoAFavorCompra(x)>0.001 && x.monedaPago===c.monedaPago);
@@ -1151,7 +1163,7 @@ function registrarAbono(id){
   guardarCompras(); archivoAbono=null; renderCompras(); renderSaldos(); actualizarDashboard(); verCompra(id);
 }
 function quitarAbono(id,i){ const c=compraPorId(id); if(!c) return; if(!confirm('¿Eliminar este abono?')) return; c.abonos.splice(i,1); guardarCompras(); renderCompras(); renderSaldos(); verCompra(id); }
-function descargarAbono(id,i){ const c=compraPorId(id); if(!c) return; const a=(c.abonos||[])[i]; if(a&&a.comprobante&&a.comprobante.data) descargarBlobData(a.comprobante.data,a.comprobante.nombre); }
+function descargarAbono(id,i){ const c=compraPorId(id); if(!c) return; const a=(c.abonos||[])[i]; if(a) descargarArchivo(a.comprobante); }
 function aplicarSaldoAFavor(destId){
   const dest=compraPorId(destId); if(!dest) return;
   const srcId=v('ab-credito'), amt=parseFloat(v('ab-credito-monto'))||0;
@@ -1354,7 +1366,7 @@ function eliminarMovCuenta(id){
   const mot=pedirMotivo('¿Eliminar este movimiento de cuenta?'); if(mot===null) return; archivar('cuenta', m, mot);
   cuenta=cuenta.filter(x=>x.id!==id); guardarCuenta(); renderCuenta(); renderSaldos();
 }
-function descargarCompCuenta(id){ const m=cuenta.find(x=>x.id===id); if(m&&m.comprobante&&m.comprobante.data) descargarBlobData(m.comprobante.data,m.comprobante.nombre); }
+function descargarCompCuenta(id){ const m=cuenta.find(x=>x.id===id); if(m) descargarArchivo(m.comprobante); }
 function renderCuentaSaldos(){
   const el=document.getElementById('cuenta-saldos'); if(!el) return;
   const ids=[...new Set(cuenta.map(m=>m.clienteId))];
@@ -1380,7 +1392,7 @@ function renderCuenta(){
       '<div class="record-detail">'+etiqueta+(m.medio?' · '+esc(m.medio):'')+(m.bancoTxt?' · '+esc(m.bancoTxt):'')+(m.refCompra?' · '+esc(m.refCompra):'')+(m.observacion?' · '+esc(m.observacion):'')+'</div>'+
       '<div class="record-meta"><span class="badge badge-amber">'+esc(m.folio)+'</span> · '+esc(m.fecha)+'</div>'+
       '</div><div class="record-actions">'+
-      (m.comprobante&&m.comprobante.data?'<button class="btn btn-secondary btn-sm" onclick="descargarCompCuenta(\''+m.id+'\')"><i class="ti ti-download"></i></button>':'')+
+      (docPresente(m.comprobante)?'<button class="btn btn-secondary btn-sm" onclick="descargarCompCuenta(\''+m.id+'\')"><i class="ti ti-download"></i></button>':'')+
       '<button class="btn btn-danger btn-sm" onclick="eliminarMovCuenta(\''+m.id+'\')"><i class="ti ti-trash"></i></button>'+
       '</div></div>';
   }).join('');
