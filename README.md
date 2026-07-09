@@ -4,9 +4,11 @@ Portal interno de cumplimiento UAF (Ley 19.913 · Circular 62) para la gestión 
 clientes (KYC/KYB), operaciones de cambio y registros de transferencias (Regla del Viaje).
 
 El acceso es **privado**: login con **correo + contraseña** (Firebase Authentication),
-restringido al personal autorizado.
+restringido al personal autorizado. Todos los registros que se agregan quedan
+guardados en el **VPS propio** y son visibles para cualquier cuenta autorizada,
+desde cualquier equipo.
 
-## Arquitectura (MVC, vanilla JS sin build) sobre Google Cloud / Firebase
+## Arquitectura (MVC, vanilla JS sin build)
 
 ```
 .
@@ -14,27 +16,33 @@ restringido al personal autorizado.
 ├── app.html                    # Vista del portal (protegida por sesión)
 ├── assets/
 │   ├── css/styles.css          # Estilos del portal
-│   └── js/legacy-app.js         # Lógica existente del portal (almacenamiento local)
+│   └── js/legacy-app.js         # Lógica existente del portal (arrays en memoria + localStorage)
 ├── src/
-│   ├── config/firebase.js       # Init de Firebase + whitelist de correos
-│   ├── models/                  # Acceso a datos en Firestore (Cliente, Compra, Registro)
+│   ├── config/firebase.js       # Login (Firebase Auth) + helpers hacia la API del VPS
+│   ├── services/vpsDataSync.js  # Sincroniza local ↔ VPS (sube/baja/fusiona por id)
+│   ├── models/                  # Capa MVC de referencia (Cliente, Compra, Registro)
 │   ├── controllers/             # Orquestación (auth + clientes/compras/registros)
 │   └── views/                   # Doc de la capa de vista
-├── db/firestore.rules           # Reglas de seguridad de Firestore
+├── vps-uploads/                 # Backend en el VPS: Postgres (datos) + documentos + Nginx/TLS
+├── db/README.md                 # Esquema de datos (ver /vps-uploads/db/init.sql)
 └── inversiones_alun_uaf.html    # HTML monolítico original (referencia histórica)
 ```
 
-- **Model**: `src/models/*.js` — CRUD contra Firestore (`window.Alun.models.*`).
+- **Model**: `src/models/*.js` y `assets/js/legacy-app.js` — acceso a datos vía la API del VPS.
 - **View**: `index.html`, `app.html`, `assets/css`, `assets/js`.
 - **Controller**: `src/controllers/*.js` y autenticación (`window.Alun.auth`).
 
-## Backend: Firebase (Google Cloud)
+## Backend
 
-- **Auth**: Firebase Authentication (Email/Password). Usuarios creados manualmente
+- **Login**: Firebase Authentication (Email/Password). Usuarios creados manualmente
   en la consola; whitelist en `src/config/firebase.js → ALLOWED_EMAILS`.
-- **Datos**: Cloud Firestore. Colecciones `clientes`, `compras`, `registros` (+ `counters`
-  para los folios correlativos CL-/CO-/OP-). Proyecto: `inversiones-alun-spa`.
-- **Reglas**: `db/firestore.rules` — solo usuarios autenticados y autorizados.
+- **Datos y documentos**: VPS propio (BoxHosting) — ver [`/vps-uploads`](vps-uploads/README.md).
+  Postgres guarda los registros (clientes, transferencias, facturas, compras, cuenta,
+  archivo de retención UAF, alertas descartadas); el disco guarda los documentos
+  adjuntos, referenciados a la carpeta del cliente. El VPS solo **verifica la
+  sesión de Firebase** en cada operación — no hay Firestore ni Cloud Storage.
+- **Sincronización**: `src/services/vpsDataSync.js` — al iniciar sesión baja el
+  registro compartido y lo fusiona con lo local; al guardar, sube al VPS.
 
 ## Hosting
 

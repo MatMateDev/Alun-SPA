@@ -782,7 +782,6 @@
 <!-- ===== Capa de datos: Firebase (Google Cloud) + MVC ===== -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="src/config/firebase.js"></script>
 <script src="src/controllers/authController.js"></script>
 <script>
@@ -799,14 +798,14 @@
 </script>
 <!-- App existente del portal (secciones completas, almacenamiento local) -->
 <script src="assets/js/legacy-app.js"></script>
-<!-- Modelos y controladores del nucleo conectados a Firebase/Firestore -->
+<!-- Modelos y controladores del nucleo conectados a la API del VPS -->
 <script src="src/models/Cliente.js"></script>
 <script src="src/models/Compra.js"></script>
 <script src="src/models/Registro.js"></script>
 <script src="src/controllers/clientesController.js"></script>
 <script src="src/controllers/comprasController.js"></script>
 <script src="src/controllers/registrosController.js"></script>
-<!-- Sincronización a Google Cloud (Firestore + Storage). Debe ir al final. -->
-<script src="src/services/firestoreSync.js"></script>
+<!-- Sincronización con el VPS propio (Postgres + documentos). Debe ir al final. -->
+<script src="src/services/vpsDataSync.js"></script>
 </body>
 </html>

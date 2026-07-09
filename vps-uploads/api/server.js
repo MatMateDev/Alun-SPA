@@ -1,13 +1,14 @@
 /* ============================================================================
- *  Alun Uploads API — servicio de subida de documentos (VPS BoxHosting)
+ *  Alun Backend API — VPS BoxHosting
  * ----------------------------------------------------------------------------
- *  Guarda los archivos en disco, referenciados a la carpeta del cliente:
- *    /data/clientes/{clienteId}/{carpeta}/{timestamp}_{nombre}
- *  Los archivos NO son públicos: toda subida y toda descarga requieren un
- *  token de sesión de Firebase Auth (el mismo login del portal). Las
- *  descargas se resuelven con un enlace firmado y de corta duración
- *  (5 minutos) — no hay URL permanente, tal como pide el diseño (los
- *  archivos viven en el back; el front solo los usa por sesión).
+ *  1) Documentos: guarda archivos en disco, referenciados a la carpeta del
+ *     cliente (/data/clientes/{clienteId}/{carpeta}/{timestamp}_{nombre}).
+ *     Descargas via enlace firmado de 5 minutos (no hay URL permanente).
+ *  2) Datos: TODOS los registros de la app (clientes, transferencias,
+ *     facturas, compras, cuenta, archivo, alertas) viven en Postgres
+ *     (tablas id + jsonb, ver db/init.sql) — reemplaza a Firestore.
+ *  El login sigue en Firebase Auth; este servicio solo VERIFICA esa sesión
+ *  (verifyIdToken) en cada operación, tanto de archivos como de datos.
  * ========================================================================== */
 const express = require("express");
 const multer = require("multer");
@@ -16,6 +17,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const cors = require("cors");
 const admin = require("firebase-admin");
+const { Pool } = require("pg");
 
 const PORT = process.env.PORT || 3001;
 const DATA_DIR = process.env.DATA_DIR || "/data";
@@ -31,9 +33,11 @@ const LINK_TTL_MS = 5 * 60 * 1000; // enlace de descarga válido solo 5 minutos
 if (!SESSION_SECRET) { console.error("Falta SESSION_SECRET en el entorno."); process.exit(1); }
 
 admin.initializeApp({ credential: admin.credential.applicationDefault() });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const app = express();
 app.use(cors({ origin: ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : false }));
+app.use(express.json({ limit: "15mb" }));
 
 const idSeguro = (s) => typeof s === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(s);
 
@@ -111,6 +115,80 @@ app.get("/api/file", (req, res) => {
   res.download(abs);
 });
 
+// ============================================================================
+//  DATOS — registro compartido: clientes, transferencias, facturas, compras,
+//  cuenta, archivo (retención UAF) y alertas descartadas. Un documento por
+//  fila (jsonb), igual forma que usaba el front con Firestore.
+// ============================================================================
+const COLECCIONES = ["clientes", "registros", "facturas", "compras", "cuenta", "archivo", "alertas_descartadas"];
+// Folio autoritativo del servidor (evita choques entre distintos equipos/usuarios).
+const FOLIOS = {
+  clientes: { prefijo: "CL-", pad: 5 },
+  compras: { prefijo: "CO-", pad: 6 },
+  registros: { prefijo: "OP-", pad: 6 },
+  facturas: { prefijo: "FAC-", pad: 5 },
+  cuenta: { prefijo: "AC-", pad: 6 },
+};
+
+async function siguienteFolio(entity) {
+  const { rows } = await pool.query(
+    "insert into counters(entity, n) values ($1, 1) on conflict (entity) do update set n = counters.n + 1 returning n",
+    [entity]
+  );
+  const cfg = FOLIOS[entity];
+  return cfg.prefijo + String(rows[0].n).padStart(cfg.pad, "0");
+}
+
+// Lista todos los documentos de una colección.
+app.get("/api/data/:col", requiereSesion, async (req, res) => {
+  const col = req.params.col;
+  if (!COLECCIONES.includes(col)) return res.status(400).json({ error: "Colección inválida." });
+  try {
+    const { rows } = await pool.query("select data from " + col + " order by updated_at desc");
+    res.json({ items: rows.map((r) => r.data) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Crea o actualiza un documento. Si es nuevo y la colección tiene folio
+// correlativo, el servidor lo asigna de forma atómica (ignora el que
+// mande el front); si ya existe, conserva el folio original.
+app.put("/api/data/:col/:id", requiereSesion, async (req, res) => {
+  const col = req.params.col;
+  const id = String(req.params.id || "");
+  if (!COLECCIONES.includes(col) || !idSeguro(id)) return res.status(400).json({ error: "Colección o id inválidos." });
+  try {
+    const existente = await pool.query("select data from " + col + " where id = $1", [id]);
+    const data = Object.assign({}, req.body, { id });
+    if (existente.rows.length) {
+      if (existente.rows[0].data && existente.rows[0].data.folio) data.folio = existente.rows[0].data.folio;
+    } else if (FOLIOS[col]) {
+      data.folio = await siguienteFolio(col);
+    }
+    await pool.query(
+      "insert into " + col + " (id, data, updated_at) values ($1, $2, now()) " +
+      "on conflict (id) do update set data = $2, updated_at = now()",
+      [id, data]
+    );
+    res.json({ ok: true, data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete("/api/data/:col/:id", requiereSesion, async (req, res) => {
+  const col = req.params.col;
+  const id = String(req.params.id || "");
+  if (!COLECCIONES.includes(col) || !idSeguro(id)) return res.status(400).json({ error: "Colección o id inválidos." });
+  try {
+    await pool.query("delete from " + col + " where id = $1", [id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-app.listen(PORT, () => console.log("Alun uploads API escuchando en :" + PORT));
+app.listen(PORT, () => console.log("Alun backend API escuchando en :" + PORT));

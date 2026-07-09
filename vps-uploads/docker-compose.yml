@@ -1,8 +1,21 @@
 services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: alun
+      POSTGRES_USER: alun
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [internal]
+
   api:
     build: ./api
     restart: unless-stopped
     env_file: .env
+    depends_on: [db]
     volumes:
       - uploads-data:/data
       - ./secrets/firebase-service-account.json:/secrets/firebase-service-account.json:ro
@@ -28,6 +41,7 @@ services:
 
 volumes:
   uploads-data:
+  pgdata:
   certbot-www:
   certbot-conf:
 
