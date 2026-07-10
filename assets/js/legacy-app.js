@@ -14,17 +14,17 @@ let archivosTx = { comprobante:null, factura:null, otros:[], nuevaFactura:null }
 let archivoFacManual = null;
 
 // ═══════════════ PERSISTENCIA ═══════════════
-function cargar(k, def){ try{ const d=localStorage.getItem(k); return d?JSON.parse(d):def; }catch(e){ return def; } }
-function guardarDatos(){ try{ localStorage.setItem('alun_registros', JSON.stringify(registros)); }catch(e){ alert('Almacenamiento lleno. Exporte y elimine registros antiguos.'); } }
-function guardarClientes(){ try{ localStorage.setItem('alun_clientes', JSON.stringify(clientes)); }catch(e){} }
-function guardarFacturas(){ try{ localStorage.setItem('alun_facturas', JSON.stringify(facturas)); }catch(e){} }
-function guardarConfigData(){ try{ localStorage.setItem('alun_config', JSON.stringify(config)); }catch(e){} }
+function cargar(k, def){ return def; } // SIN almacenamiento local: los datos viven SOLO en el VPS (vpsDataSync)
+function guardarDatos(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
+function guardarClientes(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
+function guardarFacturas(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
+function guardarConfigData(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
 
 // ═══════════════ CUMPLIMIENTO UAF: retención, auditoría y alertas ═══════════════
 let archivo = cargar('alun_archivo', []);
 let alertasDescartadas = cargar('alun_alertas_descartadas', []);
-function guardarArchivo(){ try{ localStorage.setItem('alun_archivo', JSON.stringify(archivo)); }catch(e){} }
-function guardarAlertasDescartadas(){ try{ localStorage.setItem('alun_alertas_descartadas', JSON.stringify(alertasDescartadas)); }catch(e){} }
+function guardarArchivo(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
+function guardarAlertasDescartadas(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
 // Auditoría: usuario autenticado que realiza la acción.
 function usuarioActual(){ try{ const u=window.Alun&&window.Alun.authClient&&window.Alun.authClient.currentUser; return u?u.email:''; }catch(e){ return ''; } }
 // Retención 5 años: antes de quitar un registro de la vista, se archiva con motivo/usuario/fecha.
@@ -333,20 +333,33 @@ function resumenCliente(c){
   const ui=c.interno||{}; L.push('Nivel de riesgo: '+(ui.nivelRiesgo||'')+' · KYC: '+(ui.cbpay==='si'?'Sí':'No')+' · Cruce listas: '+(ui.cruceListas==='si'?'Sí':'No'));
   return L.join('\n');
 }
+// Añade un documento al ZIP: local (base64) o remoto en el VPS (enlace temporal + fetch).
+function zipAddDoc(carpeta, nombre, f){
+  if(!f) return null;
+  if(f.data){ try{ carpeta.file(nombre, dataURIaBase64(f.data), {base64:true}); }catch(e){} return null; }
+  if(f.storagePath && window.Alun && window.Alun.linkDescargaTemporal){
+    return window.Alun.linkDescargaTemporal(f.storagePath)
+      .then(u=>u?fetch(u):null).then(resp=>(resp&&resp.ok)?resp.arrayBuffer():null)
+      .then(buf=>{ if(buf) carpeta.file(nombre, buf); }).catch(()=>{});
+  }
+  return null;
+}
 function agregarDocsClienteAZip(carpeta,c){
   carpeta.file('ficha.json', JSON.stringify(c,null,2));
   carpeta.file('resumen.txt', resumenCliente(c));
-  const add=(f,pref)=>{ if(f&&f.data){ try{ carpeta.file(pref+'_'+f.nombre, dataURIaBase64(f.data), {base64:true}); }catch(e){} } };
+  const tareas=[];
+  const add=(f,pref)=>{ if(f&&(f.data||f.storagePath)){ const t=zipAddDoc(carpeta, pref+'_'+(f.nombre||'archivo'), f); if(t) tareas.push(t); } };
   const d=c.docs||{};
   add(d.cedulaRL,'CEDULA_RL'); add(d.constitucion,'CONSTITUCION'); add(d.vigencia,'VIGENCIA'); add(d.erut,'ERUT'); add(d.kyb,'KYB'); add(d.cedulaTitular,'CEDULA_TITULAR'); add(d.fichaFirmada,'FICHA_FIRMADA');
   (d.modificaciones||[]).forEach((f,i)=>add(f,'MODIFICACION_'+(i+1)));
   (d.adicionales||[]).forEach((f,i)=>add(f,'ADICIONAL_'+(i+1)));
   (c.beneficiarios||[]).forEach((b,i)=>{ add(b.cedula,'BENEF_'+(i+1)+'_CEDULA'); add(b.kyc,'BENEF_'+(i+1)+'_KYC'); });
+  return Promise.all(tareas);
 }
 async function descargarCliente(id){
   if(typeof JSZip==='undefined'){ alert('Se necesita internet la primera vez para crear el ZIP.'); return; }
   const c=clientePorId(id); if(!c) return;
-  const zip=new JSZip(); agregarDocsClienteAZip(zip.folder('FICHA_'+(c.folio||c.id)), c);
+  const zip=new JSZip(); await agregarDocsClienteAZip(zip.folder('FICHA_'+(c.folio||c.id)), c);
   const blob=await zip.generateAsync({type:'blob'});
   descargarBlob(blob, (c.folio||'ficha')+'_'+(c.nombre||'').replace(/[^a-zA-Z0-9]/g,'_').slice(0,30)+'.zip');
 }
@@ -864,22 +877,25 @@ function agregarOperacionAZip(zip,r){
   const carpeta=zip.folder(folioDe(r));
   carpeta.file('resumen.txt', resumenOperacion(r));
   carpeta.file('datos.json', JSON.stringify({transferencia:r, cliente:clientePorId(r.clienteId)||null, factura: r.facturaModo==='agrupada'?(facturaPorId(r.facturaGrupoId)||null):null}, null, 2));
-  if(r.comprobante&&r.comprobante.data){ try{ carpeta.file('COMPROBANTE_'+r.comprobante.nombre, dataURIaBase64(r.comprobante.data), {base64:true}); }catch(e){} }
+  const tareas=[];
+  const add=(f,nombre)=>{ if(f&&(f.data||f.storagePath)){ const t=zipAddDoc(carpeta, nombre, f); if(t) tareas.push(t); } };
+  add(r.comprobante, 'COMPROBANTE_'+((r.comprobante||{}).nombre||'archivo'));
   let fac = r.facturaModo==='agrupada' ? (facturaPorId(r.facturaGrupoId)||{}).archivo : r.facturaIndividual;
-  if(fac&&fac.data){ try{ carpeta.file('FACTURA_'+fac.nombre, dataURIaBase64(fac.data), {base64:true}); }catch(e){} }
-  (r.otros||[]).forEach((f,i)=>{ if(f&&f.data){ try{ carpeta.file('ADJUNTO_'+(i+1)+'_'+f.nombre, dataURIaBase64(f.data), {base64:true}); }catch(e){} } });
+  add(fac, 'FACTURA_'+((fac||{}).nombre||'archivo'));
+  (r.otros||[]).forEach((f,i)=>add(f,'ADJUNTO_'+(i+1)+'_'+((f||{}).nombre||'archivo')));
+  return Promise.all(tareas);
 }
 async function descargarOperacion(id){
   if(typeof JSZip==='undefined'){ alert('Para crear la carpeta ZIP se necesita internet la primera vez. Reintente con conexión.'); return; }
   const r=registros.find(x=>x.id===id); if(!r) return;
-  const zip=new JSZip(); agregarOperacionAZip(zip,r);
+  const zip=new JSZip(); await agregarOperacionAZip(zip,r);
   const blob=await zip.generateAsync({type:'blob'}); descargarBlob(blob, folioDe(r)+'.zip');
 }
 async function descargarTodoZip(){
   if(typeof JSZip==='undefined'){ alert('Para crear el ZIP se necesita internet la primera vez. Reintente con conexión.'); return; }
   if(!registros.length){ alert('No hay operaciones para exportar.'); return; }
-  const zip=new JSZip(); registros.forEach(r=>agregarOperacionAZip(zip,r));
-  if(clientes.length){ const cz=zip.folder('CLIENTES'); clientes.forEach(c=>agregarDocsClienteAZip(cz.folder((c.folio||c.id)), c)); }
+  const zip=new JSZip(); await Promise.all(registros.map(r=>agregarOperacionAZip(zip,r)));
+  if(clientes.length){ const cz=zip.folder('CLIENTES'); await Promise.all(clientes.map(c=>agregarDocsClienteAZip(cz.folder((c.folio||c.id)), c))); }
   const blob=await zip.generateAsync({type:'blob'}); descargarBlob(blob,'alun_respaldo_'+hoy()+'.zip');
 }
 
@@ -1002,7 +1018,7 @@ let compras = [];
 let archivoAbono = null;
 let compraVerId = null;
 let tipoOperacionActual = 'compra_div';
-function guardarCompras(){ try{ localStorage.setItem('alun_compras', JSON.stringify(compras)); }catch(e){} }
+function guardarCompras(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
 function nuevoFolioCompra(){ config.ultimoFolioCompra=(config.ultimoFolioCompra||0)+1; return 'CO-'+String(config.ultimoFolioCompra).padStart(6,'0'); }
 function compraPorId(id){ return compras.find(c=>c.id===id); }
 
@@ -1256,7 +1272,7 @@ function renderResultados(){
 
 // ═══════════════ LIBRO DE CAJA (INGRESOS / EGRESOS) ═══════════════
 let movimientos = [];
-function guardarMovimientos(){ try{ localStorage.setItem('alun_movimientos', JSON.stringify(movimientos)); }catch(e){} }
+function guardarMovimientos(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
 function nuevoFolioMov(){ config.ultimoFolioMov=(config.ultimoFolioMov||0)+1; return 'MOV-'+String(config.ultimoFolioMov).padStart(6,'0'); }
 function poblarMovCliente(){ const sel=document.getElementById('mv-cliente'); if(sel){ const p=sel.value; sel.innerHTML='<option value="">— Seleccione —</option>'+clientes.map(c=>'<option value="'+c.id+'">'+esc(c.nombre)+'</option>').join(''); sel.value=p; } }
 function onMovContraparte(){ const t=v('mv-cptipo'); const cb=document.getElementById('mv-cliente-box'), pb=document.getElementById('mv-proveedor-box'), tb=document.getElementById('mv-cptexto-box'); if(cb) cb.style.display=t==='cliente'?'flex':'none'; if(pb) pb.style.display=t==='proveedor'?'flex':'none'; if(tb) tb.style.display=t==='empresa'?'flex':'none'; }
@@ -1313,7 +1329,7 @@ function renderMovimientos(){
 
 // ═══════════════ PROVEEDORES ═══════════════
 let proveedores = [];
-function guardarProveedores(){ try{ localStorage.setItem('alun_proveedores', JSON.stringify(proveedores)); }catch(e){} }
+function guardarProveedores(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
 const TIPO_PROV={banco:'Banco',corredora:'Corredora de bolsa',operador_usdt:'Operador USDT',otro:'Otro'};
 function crearProveedor(){
   const nombre=v('pv-nombre'); if(!nombre){ alert('Ingrese el nombre del proveedor.'); return; }
@@ -1341,7 +1357,7 @@ function poblarProveedoresSelects(){
 // ═══════════════ ABONOS EN CUENTA DEL CLIENTE ═══════════════
 let cuenta = [];
 let archivoCuenta = null;
-function guardarCuenta(){ try{ localStorage.setItem('alun_cuenta', JSON.stringify(cuenta)); }catch(e){} }
+function guardarCuenta(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
 function nuevoFolioCuenta(){ config.ultimoFolioCuenta=(config.ultimoFolioCuenta||0)+1; return 'AC-'+String(config.ultimoFolioCuenta).padStart(6,'0'); }
 function poblarCuentaCliente(){ const sel=document.getElementById('cu-cliente'); if(sel){ const p=sel.value; sel.innerHTML='<option value="">— Seleccione cliente —</option>'+clientes.map(c=>'<option value="'+c.id+'">'+esc(c.nombre)+' ('+esc(c.folio)+')</option>').join(''); sel.value=p; } }
 function signoCuenta(m){ return m.tipo==='deposito'?1:-1; }
@@ -1413,7 +1429,7 @@ function aplicarSaldoCuenta(compraId){
 
 // ═══════════════ CUENTAS BANCARIAS DE LA EMPRESA ═══════════════
 let cuentasBancarias = [];
-function guardarCuentasBancarias(){ try{ localStorage.setItem('alun_cuentas_bancarias', JSON.stringify(cuentasBancarias)); }catch(e){} }
+function guardarCuentasBancarias(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
 function etiquetaCB(cb){ return cb.banco+' · '+cb.numero+' ('+cb.moneda+')'+(cb.alias?' — '+cb.alias:''); }
 function crearCuentaBancaria(){
   const banco=v('cb-banco'), numero=v('cb-numero'); if(!banco||!numero){ alert('Ingrese banco y número de cuenta.'); return; }
@@ -1452,7 +1468,7 @@ function pasarSaldoAFavorACuenta(compraId){
 // ═══════════════ CONCILIACIÓN BANCARIA ═══════════════
 let cartolaLineas = [];
 let cartolaRowsTmp = [];
-function guardarCartola(){ try{ localStorage.setItem('alun_cartola', JSON.stringify(cartolaLineas)); }catch(e){} }
+function guardarCartola(){ /* persistencia SOLO en el VPS (vpsDataSync) */ }
 function padN(n){ return String(n).padStart(2,'0'); }
 
 function parseCSV(text){

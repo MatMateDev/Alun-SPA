@@ -60,3 +60,16 @@ create table if not exists counters (
   entity text primary key,
   n integer not null default 0
 );
+
+-- Módulos restantes (servidor-único: NADA vive en el navegador)
+create table if not exists movimientos (
+  id text primary key, data jsonb not null, updated_at timestamptz not null default now());
+create table if not exists proveedores (
+  id text primary key, data jsonb not null, updated_at timestamptz not null default now());
+create table if not exists cuentas_bancarias (
+  id text primary key, data jsonb not null, updated_at timestamptz not null default now());
+create table if not exists cartola (
+  id text primary key, data jsonb not null, updated_at timestamptz not null default now());
+-- Configuración del portal (umbrales, logo, correlativo local): un solo documento id='config'
+create table if not exists configuracion (
+  id text primary key, data jsonb not null, updated_at timestamptz not null default now());

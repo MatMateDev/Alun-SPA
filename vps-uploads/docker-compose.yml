@@ -31,9 +31,13 @@ services:
       - certbot-conf:/etc/letsencrypt
     depends_on: [api]
     networks: [internal]
+    # Recarga cada 6h para tomar el certificado renovado por certbot (si no,
+    # nginx sirve el certificado viejo hasta que expira a los 90 días).
+    command: "/bin/sh -c 'while :; do sleep 6h; nginx -s reload; done & exec nginx -g \"daemon off;\"'"
 
   certbot:
     image: certbot/certbot
+    restart: unless-stopped
     volumes:
       - certbot-www:/var/www/certbot
       - certbot-conf:/etc/letsencrypt

@@ -60,6 +60,11 @@
   };
 
   auth.cerrarSesion = async function (loginUrl) {
+    // No cerrar con cambios sin confirmar en el servidor (se perderían: no hay copia local).
+    if (A.sync && A.sync.hayPendientes && A.sync.hayPendientes()) {
+      const seguir = confirm("Hay cambios que AÚN NO se guardan en el servidor y se perderán.\n¿Cerrar sesión de todas formas?");
+      if (!seguir) { if (A.sync.ahora) A.sync.ahora(); return; }
+    }
     await A.authClient.signOut();
     window.location.replace(loginUrl || "index.html");
   };
@@ -70,9 +75,16 @@
   auth.iniciarInactividad = function (minutos, loginUrl) {
     const limite = (minutos || 15) * 60 * 1000;
     const cerrar = () => {
-      auth.cerrarSesion(loginUrl).then(() => {
-        // Mensaje visible tras la redirección al login.
+      // Con cambios pendientes NO se cierra: se intenta guardar y se reintenta el
+      // cierre en 2 minutos (perder registros UAF es peor que demorar el logout).
+      if (A.sync && A.sync.hayPendientes && A.sync.hayPendientes()) {
+        if (A.sync.ahora) A.sync.ahora();
+        timerId = setTimeout(cerrar, 2 * 60 * 1000);
+        return;
+      }
+      A.authClient.signOut().then(() => {
         try { sessionStorage.setItem("alun_motivo_salida", "inactividad"); } catch (e) {}
+        window.location.replace(loginUrl || "index.html");
       });
     };
     const reiniciar = () => {

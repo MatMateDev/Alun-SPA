@@ -1,16 +1,15 @@
 /* ============================================================================
- *  SERVICE · Sincronización con el VPS propio (Postgres + documentos)
+ *  SERVICE · Almacén en el VPS — SIN almacenamiento local
  *  Inversiones Alun SpA — Portal interno UAF
  * ----------------------------------------------------------------------------
- *  Modelo: el VPS manda; el navegador es solo caché.
- *  - Cada guardar*() del legacy empuja al servidor SOLO los registros que
- *    cambiaron (huella por id) y muestra un banner con el resultado.
- *  - Cada eliminar*() propaga la eliminación al servidor (cola con reintento);
- *    sin esto, el pull "revive" lo borrado.
- *  - Al iniciar sesión se baja el registro compartido y se fusiona por id
- *    (gana la versión con actualizadoEn más reciente).
- *  - Los adjuntos base64 se suben a la carpeta del cliente en el VPS; si una
- *    subida falla, el registro queda "sucio" y se reintenta (no se pierde).
+ *  Modelo: el VPS es el ÚNICO lugar donde viven los datos.
+ *  - Al iniciar sesión se CARGA todo desde el servidor a memoria y se pinta.
+ *  - Al presionar Guardar, se envía al servidor lo que cambió y la vista
+ *    muestra la versión que el servidor confirmó (folio y adjuntos incluidos).
+ *  - Nada persiste en el navegador: ni localStorage ni sessionStorage (se
+ *    purgan restos de versiones anteriores). Al cerrar la pestaña, la única
+ *    copia es la del VPS.
+ *  - Eliminar marca lápida en el servidor (retención UAF; nadie la revive).
  *
  *  Debe cargarse DESPUÉS de legacy-app.js y de src/config/firebase.js.
  * ========================================================================== */
@@ -19,51 +18,75 @@
   const A = window.Alun;
   if (!A || !A.dataList) { console.error("[sync] API del VPS no inicializada"); return; }
 
-  // Mapeo colección del VPS  →  clave localStorage  →  subcarpeta de documentos
+  // Purga de restos locales de versiones anteriores (requisito: nada local).
+  try {
+    Object.keys(localStorage).filter((k) => k.indexOf("alun_") === 0).forEach((k) => localStorage.removeItem(k));
+    sessionStorage.removeItem("alun_pull_ok");
+  } catch (e) {}
+
+  // Colección del VPS ↔ array global del portal (en memoria) ↔ guardar*() que la persiste.
   const MAP = [
-    { col: "clientes",  key: "alun_clientes",  carpeta: "ficha",          fn: "guardarClientes" },
-    { col: "registros", key: "alun_registros", carpeta: "transferencias", fn: "guardarDatos" },
-    { col: "facturas",  key: "alun_facturas",  carpeta: "facturas",       fn: "guardarFacturas" },
-    { col: "compras",   key: "alun_compras",   carpeta: "compras",        fn: "guardarCompras" },
-    { col: "cuenta",    key: "alun_cuenta",    carpeta: "cuenta",         fn: "guardarCuenta" },
-    // Cumplimiento UAF: registros eliminados (retención 5 años) y alertas descartadas (auditoría).
-    { col: "archivo",             key: "alun_archivo",             carpeta: "archivo", fn: "guardarArchivo" },
-    { col: "alertas_descartadas", key: "alun_alertas_descartadas", carpeta: "alertas", fn: "guardarAlertasDescartadas" },
+    { col: "clientes",  carpeta: "ficha",          fn: "guardarClientes",  get: () => clientes,        set: (v) => { clientes = v; } },
+    { col: "registros", carpeta: "transferencias", fn: "guardarDatos",     get: () => registros,       set: (v) => { registros = v; } },
+    { col: "facturas",  carpeta: "facturas",       fn: "guardarFacturas",  get: () => facturas,        set: (v) => { facturas = v; } },
+    { col: "compras",   carpeta: "compras",        fn: "guardarCompras",   get: () => compras,         set: (v) => { compras = v; } },
+    { col: "cuenta",    carpeta: "cuenta",         fn: "guardarCuenta",    get: () => cuenta,          set: (v) => { cuenta = v; } },
+    { col: "movimientos",        carpeta: "archivo", fn: "guardarMovimientos",      get: () => movimientos,     set: (v) => { movimientos = v; } },
+    { col: "proveedores",        carpeta: "archivo", fn: "guardarProveedores",      get: () => proveedores,     set: (v) => { proveedores = v; } },
+    { col: "cuentas_bancarias",  carpeta: "archivo", fn: "guardarCuentasBancarias", get: () => cuentasBancarias, set: (v) => { cuentasBancarias = v; } },
+    { col: "cartola",            carpeta: "archivo", fn: "guardarCartola",          get: () => cartolaLineas,   set: (v) => { cartolaLineas = v; } },
+    { col: "archivo",             carpeta: "archivo", fn: "guardarArchivo",             get: () => archivo,             set: (v) => { archivo = v; } },
+    { col: "alertas_descartadas", carpeta: "alertas", fn: "guardarAlertasDescartadas",  get: () => alertasDescartadas,  set: (v) => { alertasDescartadas = v; } },
+    // Configuración (umbrales, folios, logo): un solo documento; sin subir su logo como adjunto.
+    { col: "configuracion", carpeta: "archivo", fn: "guardarConfigData", especial: "config",
+      get: () => [Object.assign({ id: "config" }, config)],
+      set: (v) => { const d = (v || [])[0]; if (d) { config = Object.assign(config, d); if (!config.logo) config.logo = (typeof LOGO_ALUN !== "undefined" ? LOGO_ALUN : ""); } } },
   ];
 
-  // Funciones eliminar*() del legacy cuya eliminación debe propagarse al servidor.
+  // Funciones eliminar*() del legacy cuya eliminación se propaga como lápida.
   const DEL_MAP = [
-    { fn: "eliminarCliente",   col: "clientes",  key: "alun_clientes" },
-    { fn: "eliminarRegistro",  col: "registros", key: "alun_registros" },
-    { fn: "eliminarFactura",   col: "facturas",  key: "alun_facturas" },
-    { fn: "eliminarCompra",    col: "compras",   key: "alun_compras" },
-    { fn: "eliminarMovCuenta", col: "cuenta",    key: "alun_cuenta" },
+    { fn: "eliminarCliente",        col: "clientes",          get: () => clientes },
+    { fn: "eliminarRegistro",       col: "registros",         get: () => registros },
+    { fn: "eliminarFactura",        col: "facturas",          get: () => facturas },
+    { fn: "eliminarCompra",         col: "compras",           get: () => compras },
+    { fn: "eliminarMovCuenta",      col: "cuenta",            get: () => cuenta },
+    { fn: "eliminarMovimiento",     col: "movimientos",       get: () => movimientos },
+    { fn: "eliminarProveedor",      col: "proveedores",       get: () => proveedores },
+    { fn: "eliminarCuentaBancaria", col: "cuentas_bancarias", get: () => cuentasBancarias },
   ];
 
   const esArchivo = (o) => o && typeof o === "object" && typeof o.data === "string" && o.data.indexOf("data:") === 0;
 
-  // ── Huella por registro: solo se empuja lo que cambió desde el último push ──
+  // Estado en memoria (nada se escribe en el navegador).
+  const sincronizado = {}; // col -> { id: huella del último estado confirmado por el servidor }
+  MAP.forEach((e) => { sincronizado[e.col] = {}; });
+  const sellos = {};       // col -> { id: {base, sello} } — actualizadoEn estable por contenido (LWW justo)
+  MAP.forEach((e) => { sellos[e.col] = {}; });
+  let colaDel = [];        // eliminaciones pendientes de confirmar en el servidor
+  let cargado = false;     // true cuando la carga inicial desde el VPS terminó
+
+  // Overlay que bloquea la interacción hasta que los datos del VPS estén cargados
+  // (evita crear/editar sobre datos incompletos y perderlos al llegar el servidor).
+  let overlayEl = null;
+  function overlayCarga(mostrar, texto) {
+    if (!overlayEl) {
+      overlayEl = document.createElement("div");
+      overlayEl.id = "sync-overlay";
+      overlayEl.style.cssText = "position:fixed;inset:0;z-index:9998;background:rgba(244,245,241,.86);" +
+        "display:flex;align-items:center;justify-content:center;font:600 15px 'Hanken Grotesk',system-ui,sans-serif;color:#3E4D5C;";
+      document.body.appendChild(overlayEl);
+    }
+    overlayEl.textContent = texto || "Cargando datos del servidor…";
+    overlayEl.style.display = mostrar ? "flex" : "none";
+  }
+
   function huella(s) {
     let h = 5381;
     for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
     return String(h);
   }
-  function leerSynced(col) {
-    try { return JSON.parse(localStorage.getItem("alun_synced_" + col) || "{}") || {}; } catch (e) { return {}; }
-  }
-  function guardarSynced(col, m) {
-    try { localStorage.setItem("alun_synced_" + col, JSON.stringify(m)); } catch (e) {}
-  }
 
-  // ── Cola de eliminaciones pendientes de propagar al servidor ────────────────
-  function leerColaDel() {
-    try { return JSON.parse(localStorage.getItem("alun_pend_del") || "[]") || []; } catch (e) { return []; }
-  }
-  function guardarColaDel(q) {
-    try { localStorage.setItem("alun_pend_del", JSON.stringify(q)); } catch (e) {}
-  }
-
-  // ── Indicador visible del estado de guardado en el servidor ────────────────
+  // ── Banner de estado (única señal visual; no persiste nada) ────────────────
   let bannerEl = null, bannerTimer = null, bannerTipo = null;
   function banner(texto, tipo) {
     if (!bannerEl) {
@@ -86,15 +109,23 @@
     if (tipo !== "err") bannerTimer = setTimeout(() => { bannerEl.style.display = "none"; bannerTipo = null; }, tipo === "warn" ? 6000 : 2500);
   }
 
-  // Reintento automático mientras queden cambios sin llegar al servidor.
   let retryTimer = null;
   function programarReintento() {
     if (retryTimer) return;
     retryTimer = setTimeout(() => { retryTimer = null; empujarTodo(false); }, 30000);
   }
 
-  // Recorre el objeto: sube archivos base64 al VPS y los reemplaza por
-  // { nombre, storagePath }. st.fallos cuenta las subidas que fallaron.
+  // Repinta el portal con lo que hay en memoria (que es lo confirmado por el VPS).
+  function repintar() {
+    ["aplicarLogo", "cargarConfigForm", "renderClientes", "filtrar", "renderFacturas", "poblarSelectFacturas",
+     "poblarFacCliente", "poblarSelectsCompra", "renderCompras", "renderSaldos", "renderCuenta", "renderMovimientos",
+     "poblarMovCliente", "renderProveedores", "renderCuentasBancarias", "renderCartola", "renderResultados",
+     "poblarProveedoresSelects", "poblarCuentasBancariasSelects", "poblarConcCuenta",
+     "actualizarDashboard", "verificarAlertas", "verificarPendientes"]
+      .forEach((n) => { try { if (typeof window[n] === "function") window[n](); } catch (e) {} });
+  }
+
+  // Sube adjuntos base64 al VPS y los reemplaza por { nombre, storagePath }.
   async function procesarArchivos(obj, clienteId, carpeta, st) {
     if (!obj || typeof obj !== "object") return obj;
     if (Array.isArray(obj)) {
@@ -120,84 +151,98 @@
     return obj;
   }
 
-  // Sube al VPS los registros que cambiaron desde el último push exitoso.
-  // Devuelve la cantidad de registros que NO lograron quedar guardados.
+  // Envía al servidor los registros que cambiaron; la memoria queda con la
+  // versión CONFIRMADA por el servidor (folio y rutas de adjuntos incluidos).
+  // Devuelve la cantidad de registros que no lograron guardarse.
   async function upsert(entry) {
-    let arr;
-    try { arr = JSON.parse(localStorage.getItem(entry.key) || "[]"); } catch (e) { return 0; }
+    const arr = entry.get();
     if (!Array.isArray(arr) || !arr.length) return 0;
-    const synced = leerSynced(entry.col);
-    let errores = 0;
-    for (const item of arr) {
+    const synced = sincronizado[entry.col];
+    let errores = 0, huboWriteBack = false;
+    for (const item of arr.slice()) {
       if (!item || !item.id) continue;
       const antes = JSON.stringify(item);
-      if (synced[item.id] === huella(antes)) continue; // sin cambios desde el último push
+      const hBase = huella(antes);
+      if (synced[item.id] === hBase) continue; // sin cambios desde la última confirmación
       try {
         const clon = JSON.parse(antes);
-        // Sello de versión: permite al merge y al servidor distinguir la copia más reciente.
-        clon.actualizadoEn = new Date().toISOString();
+        // Sello LWW ESTABLE: se fija cuando cambia el contenido y se reutiliza en
+        // los reintentos — así una copia vieja reenviada tarde no gana por reloj.
+        const s = sellos[entry.col][item.id];
+        if (!s || s.base !== hBase) sellos[entry.col][item.id] = { base: hBase, sello: new Date().toISOString() };
+        clon.actualizadoEn = sellos[entry.col][item.id].sello;
         const st = { fallos: 0 };
-        const clienteId = item.clienteId || (entry.col === "clientes" ? item.id : "_sin_cliente");
-        const limpio = await procesarArchivos(clon, clienteId, entry.carpeta, st);
+        let limpio = clon;
+        if (!entry.especial) {
+          const clienteId = item.clienteId || (entry.col === "clientes" ? item.id : "_sin_cliente");
+          limpio = await procesarArchivos(clon, clienteId, entry.carpeta, st);
+        }
+        // Si algún adjunto no se pudo subir, NO se persiste la ficha con el stub:
+        // queda sucia completa (base64 en memoria) y se reintenta todo junto.
+        if (st.fallos > 0) { errores += st.fallos; continue; }
         const r = await A.dataPut(entry.col, item.id, limpio);
         if (!r || !r.data) throw new Error("sin respuesta del servidor");
-        // Lápida en el servidor: este registro fue eliminado — quitar la copia local
-        // en vez de revivirlo (la eliminación de un usuario vale para todos).
         if (r.eliminado) {
-          try {
-            const fresco = JSON.parse(localStorage.getItem(entry.key) || "[]");
-            localStorage.setItem(entry.key, JSON.stringify(fresco.filter((x) => !x || x.id !== item.id)));
-          } catch (e) {}
-          delete synced[item.id];
-          banner("⚠ Un registro fue eliminado por otro usuario; ese cambio no se guardó y desaparecerá al recargar.", "warn");
+          // Lápida: fue eliminado por otro usuario — quitarlo de la vista, no revivirlo.
+          entry.set(entry.get().filter((x) => !x || x.id !== item.id));
+          delete synced[item.id]; delete sellos[entry.col][item.id];
+          huboWriteBack = true;
+          banner("⚠ Un registro fue eliminado por otro usuario; ese cambio no se guardó.", "warn");
           continue;
         }
-        const guardado = r.data;
-        if (st.fallos > 0) { errores += st.fallos; continue; } // sigue "sucio": reintentará subir los adjuntos
-        // Folio autoritativo del servidor: reflejarlo en la copia local.
-        if (guardado.folio && guardado.folio !== item.folio) {
-          try {
-            const fresco = JSON.parse(localStorage.getItem(entry.key) || "[]");
-            const i = fresco.findIndex((x) => x && x.id === item.id);
-            if (i >= 0) { fresco[i].folio = guardado.folio; localStorage.setItem(entry.key, JSON.stringify(fresco)); }
-            item.folio = guardado.folio;
-          } catch (e) {}
+        if (r.ignorado) {
+          // El servidor conserva una versión MÁS RECIENTE (de otro usuario): se
+          // muestra esa versión y se descarta la copia local antigua, avisando.
+          if (!entry.especial) {
+            const vivo = entry.get();
+            const i = vivo.findIndex((x) => x && x.id === item.id);
+            if (i >= 0) { vivo[i] = r.data; huboWriteBack = true; }
+          }
+          synced[item.id] = huella(JSON.stringify(entry.especial ? entry.get()[0] : r.data));
+          delete sellos[entry.col][item.id];
+          banner("⚠ Otro usuario guardó una versión más reciente de un registro; se muestra la versión del servidor.", "warn");
+          continue;
         }
-        synced[item.id] = huella(JSON.stringify(item));
+        // La vista muestra EXACTAMENTE lo confirmado por el servidor.
+        if (!entry.especial) {
+          const vivo = entry.get();
+          const i = vivo.findIndex((x) => x && x.id === item.id);
+          if (i >= 0 && JSON.stringify(vivo[i]) === antes) { vivo[i] = r.data; huboWriteBack = true; }
+          synced[item.id] = huella(JSON.stringify(r.data));
+        } else {
+          // Config: la huella se calcula sobre la forma local (orden de claves estable).
+          synced[item.id] = huella(JSON.stringify(entry.get()[0]));
+        }
+        delete sellos[entry.col][item.id];
       } catch (e) {
         errores++;
         console.warn("[sync] " + entry.col + " id=" + item.id + ":", e.message);
       }
     }
-    guardarSynced(entry.col, synced);
+    if (huboWriteBack) repintar();
     return errores;
   }
 
-  // Propaga al servidor las eliminaciones encoladas. Devuelve las que fallaron.
   async function procesarEliminaciones() {
-    const q = leerColaDel();
-    if (!q.length) return 0;
+    if (!colaDel.length) return 0;
     const resto = [];
-    for (const p of q) {
-      try {
-        const ok = await A.dataDelete(p.col, p.id);
-        if (!ok) resto.push(p);
-      } catch (e) { resto.push(p); }
+    for (const p of colaDel) {
+      try { if (!(await A.dataDelete(p.col, p.id))) resto.push(p); }
+      catch (e) { resto.push(p); }
     }
-    guardarColaDel(resto);
+    colaDel = resto;
     return resto.length;
   }
 
-  // Empuja todo (cambios + eliminaciones) y refleja el resultado al usuario.
   let empujando = false;
   async function empujarTodo(mostrarOk) {
-    if (empujando) return;
+    if (empujando || !cargado) return;
     empujando = true;
     try {
       let errores = await procesarEliminaciones();
       for (const entry of MAP) errores += (await upsert(entry).catch(() => 1)) || 0;
       if (errores > 0) {
-        banner("⚠ " + errores + " cambio(s) aún no se guardan en el servidor. Reintentando automáticamente…", "err");
+        banner("⚠ " + errores + " cambio(s) aún no se guardan en el servidor. NO cierre la página; se reintenta automáticamente…", "err");
         programarReintento();
       } else if (mostrarOk || bannerTipo === "err") {
         banner("✓ Todo guardado en el servidor", "ok");
@@ -208,88 +253,111 @@
     }
   }
 
-  // Envuelve cada guardar*(): tras guardar localmente, empuja los cambios y
-  // muestra al usuario si quedaron en el servidor (o si se reintentará).
+  // Envuelve cada guardar*(): al Guardar se envía al VPS y se informa el resultado.
   MAP.forEach((entry) => {
     const original = window[entry.fn];
     if (typeof original !== "function") return;
     window[entry.fn] = function () {
       const r = original.apply(this, arguments);
+      if (!cargado) {
+        // La carga inicial aún no termina (el overlay debería impedir llegar aquí):
+        // avisar en vez de fallar en silencio; lo escrito se empuja al terminar la carga.
+        banner("⚠ Aún se cargan los datos del servidor; el cambio se enviará al terminar.", "warn");
+        return r;
+      }
       banner("Guardando en el servidor…", "info");
       upsert(entry)
         .then((errores) => {
           if (errores > 0) {
-            banner("⚠ No se pudo guardar en el servidor. Se reintentará automáticamente.", "err");
+            banner("⚠ No se pudo guardar en el servidor. NO cierre la página; se reintentará automáticamente.", "err");
             programarReintento();
-          } else {
+          } else if (bannerTipo !== "warn") { // no tapar avisos (p.ej. "eliminado por otro usuario")
             banner("✓ Guardado en el servidor", "ok");
           }
         })
         .catch((e) => {
           console.warn("[sync]", entry.col, e);
-          banner("⚠ No se pudo guardar en el servidor. Se reintentará automáticamente.", "err");
+          banner("⚠ No se pudo guardar en el servidor. NO cierre la página; se reintentará automáticamente.", "err");
           programarReintento();
         });
       return r;
     };
   });
 
-  // Envuelve cada eliminar*(): si el registro efectivamente se quitó localmente
-  // (no se canceló el confirm/motivo), propaga la eliminación al servidor.
-  function existeLocal(key, id) {
-    try { return (JSON.parse(localStorage.getItem(key) || "[]") || []).some((x) => x && x.id === id); }
-    catch (e) { return false; }
-  }
+  // Envuelve cada eliminar*(): si el registro se quitó de memoria (no se canceló
+  // el confirm/motivo), se lapida en el servidor.
   DEL_MAP.forEach((d) => {
     const original = window[d.fn];
     if (typeof original !== "function") return;
     window[d.fn] = function (id) {
-      const habia = existeLocal(d.key, id);
+      const habia = (d.get() || []).some((x) => x && x.id === id);
       const r = original.apply(this, arguments);
-      if (habia && !existeLocal(d.key, id)) {
-        const q = leerColaDel();
-        q.push({ col: d.col, id: String(id) });
-        guardarColaDel(q);
-        const synced = leerSynced(d.col);
-        delete synced[id];
-        guardarSynced(d.col, synced);
+      const sigue = (d.get() || []).some((x) => x && x.id === id);
+      if (habia && !sigue) {
+        colaDel.push({ col: d.col, id: String(id), en: new Date().toISOString() });
+        delete sincronizado[d.col][id];
         procesarEliminaciones().then((fallidas) => {
-          if (fallidas > 0) { banner("⚠ La eliminación se aplicará en el servidor al reconectar.", "err"); programarReintento(); }
+          if (fallidas > 0) { banner("⚠ La eliminación se aplicará en el servidor al reconectar. NO cierre la página.", "err"); programarReintento(); }
+          else banner("✓ Eliminado en el servidor", "ok");
         });
       }
       return r;
     };
   });
 
-  // Envuelve eliminarTodo() (zona de peligro): la limpieza masiva también se
-  // propaga al servidor como lápidas — si no, el pull restauraría todo.
+  // Cartola: sus líneas se quitan con funciones propias (no eliminar*) — también se lapidan.
+  ["quitarLineaCartola", "limpiarCartola"].forEach((fn) => {
+    const original = window[fn];
+    if (typeof original !== "function") return;
+    window[fn] = function () {
+      const antes = (cartolaLineas || []).map((x) => x && x.id).filter(Boolean);
+      const r = original.apply(this, arguments);
+      const ahora = new Set((cartolaLineas || []).map((x) => x && x.id));
+      let n = 0;
+      antes.forEach((id) => {
+        if (!ahora.has(id)) { colaDel.push({ col: "cartola", id: String(id), en: new Date().toISOString() }); delete sincronizado["cartola"][id]; delete sellos["cartola"][id]; n++; }
+      });
+      if (n > 0) {
+        procesarEliminaciones().then((fallidas) => {
+          if (fallidas > 0) { banner("⚠ Eliminaciones de cartola pendientes; se aplicarán al reconectar.", "err"); programarReintento(); }
+        });
+      }
+      return r;
+    };
+  });
+
+  // ¿Quedan cambios locales sin confirmar por el servidor?
+  function hayPendientes() {
+    if (colaDel.length > 0 || empujando) return true;
+    for (const entry of MAP) {
+      const synced = sincronizado[entry.col];
+      for (const item of entry.get() || []) {
+        if (item && item.id && synced[item.id] !== huella(JSON.stringify(item))) return true;
+      }
+    }
+    return false;
+  }
+
+  // Envuelve eliminarTodo() (zona de peligro): también lapida todo en el servidor.
   (function () {
     const original = window.eliminarTodo;
     if (typeof original !== "function") return;
     window.eliminarTodo = function () {
       const antes = {};
-      MAP.forEach((e) => {
-        try { antes[e.col] = (JSON.parse(localStorage.getItem(e.key) || "[]") || []).map((x) => x && x.id).filter(Boolean); }
-        catch (_) { antes[e.col] = []; }
-      });
+      MAP.forEach((e) => { if (!e.especial) antes[e.col] = (e.get() || []).map((x) => x && x.id).filter(Boolean); });
       const r = original.apply(this, arguments);
-      const q = leerColaDel();
       let n = 0;
       MAP.forEach((e) => {
-        let ahora;
-        try { ahora = new Set((JSON.parse(localStorage.getItem(e.key) || "[]") || []).map((x) => x && x.id)); }
-        catch (_) { ahora = new Set(); }
-        const synced = leerSynced(e.col);
+        if (e.especial) return;
+        const ahora = new Set((e.get() || []).map((x) => x && x.id));
         (antes[e.col] || []).forEach((id) => {
-          if (!ahora.has(id)) { q.push({ col: e.col, id: String(id), en: new Date().toISOString() }); delete synced[id]; n++; }
+          if (!ahora.has(id)) { colaDel.push({ col: e.col, id: String(id), en: new Date().toISOString() }); delete sincronizado[e.col][id]; n++; }
         });
-        guardarSynced(e.col, synced);
       });
       if (n > 0) {
-        guardarColaDel(q);
-        banner("Eliminando " + n + " registro(s) también en el servidor…", "info");
+        banner("Eliminando " + n + " registro(s) en el servidor…", "info");
         procesarEliminaciones().then((fallidas) => {
-          if (fallidas > 0) { banner("⚠ Algunas eliminaciones se aplicarán al reconectar.", "err"); programarReintento(); }
+          if (fallidas > 0) { banner("⚠ Algunas eliminaciones se aplicarán al reconectar. NO cierre la página.", "err"); programarReintento(); }
           else banner("✓ Eliminado también en el servidor", "ok");
         });
       }
@@ -297,68 +365,54 @@
     };
   })();
 
-  // BAJADA (pull): trae del VPS lo creado desde cualquier equipo/usuario y lo
-  // fusiona con lo local por id (gana la versión más reciente). No revive lo
-  // que está pendiente de eliminar. Marca lo bajado como sincronizado.
-  async function pull() {
-    let huboCambios = false;
-    const pendientesDel = leerColaDel();
+  // CARGA INICIAL: todo desde el VPS a memoria; las lápidas no se muestran.
+  // Lo creado localmente mientras cargaba (id que el servidor no conoce) se
+  // CONSERVA y se empuja después — nunca se descarta trabajo del usuario.
+  async function cargarDesdeServidor() {
     for (const entry of MAP) {
-      try {
-        const remotos = await A.dataList(entry.col);
-        if (!remotos.length) continue;
-        let local;
-        try { local = JSON.parse(localStorage.getItem(entry.key) || "[]"); } catch (e) { local = []; }
-        if (!Array.isArray(local)) local = [];
-        const porId = {};
-        local.forEach((x) => { if (x && x.id) porId[x.id] = x; });
-        const synced = leerSynced(entry.col);
-        remotos.forEach((remoto) => {
-          const id = remoto.id;
-          if (!id) return;
-          if (pendientesDel.some((p) => p.col === entry.col && p.id === String(id))) return; // no revivir eliminados
-          // Lápida: el registro fue eliminado por algún usuario — quitar la copia
-          // local si existe y no volver a mostrarlo nunca.
-          if (remoto.eliminado) {
-            if (porId[id]) { delete porId[id]; huboCambios = true; }
-            delete synced[id];
-            return;
-          }
-          const loc = porId[id];
-          const rMod = remoto.actualizadoEn || remoto.creadoEn || "";
-          const lMod = loc ? (loc.actualizadoEn || loc.creadoEn || "") : null;
-          if (!loc || (rMod && rMod > lMod)) {
-            porId[id] = remoto;
-            synced[id] = huella(JSON.stringify(remoto)); // ya está en el servidor: no re-subir
-            huboCambios = true;
-          }
-        });
-        const merged = Object.values(porId).sort((a, b) => String(b.creadoEn || "").localeCompare(String(a.creadoEn || "")));
-        localStorage.setItem(entry.key, JSON.stringify(merged));
-        guardarSynced(entry.col, synced);
-      } catch (e) {
-        console.warn("[sync] pull " + entry.col + ":", e.message);
+      const items = await A.dataList(entry.col); // si falla, lanza y se reintenta completo
+      const vivos = items.filter((x) => x && x.id && !x.eliminado);
+      const lapidas = new Set(items.filter((x) => x && x.eliminado).map((x) => x.id));
+      const idsServidor = new Set(vivos.map((x) => x.id));
+      const localesNuevos = entry.especial ? [] :
+        (entry.get() || []).filter((x) => x && x.id && !idsServidor.has(x.id) && !lapidas.has(x.id));
+      const todos = localesNuevos.concat(vivos);
+      todos.sort((a, b) => String(b.creadoEn || "").localeCompare(String(a.creadoEn || "")));
+      entry.set(todos);
+      const synced = sincronizado[entry.col];
+      if (entry.especial) {
+        synced["config"] = huella(JSON.stringify(entry.get()[0])); // huella sobre la forma local
+      } else {
+        vivos.forEach((x) => { synced[x.id] = huella(JSON.stringify(x)); }); // localesNuevos quedan sucios → se empujan
       }
     }
-    return huboCambios;
+    cargado = true;
   }
 
-  // Reintenta apenas vuelva la conexión a internet.
-  window.addEventListener("online", () => empujarTodo(false));
-
-  // Al iniciar sesión: primero BAJA y fusiona; si llegó algo nuevo recarga la página
-  // (una sola vez) para que el portal lo muestre; luego SUBE lo local pendiente.
-  A.auth.sesion().then(async (u) => {
-    if (!u) return;
-    const cambios = await pull();
-    if (cambios && !sessionStorage.getItem("alun_pull_ok")) {
-      sessionStorage.setItem("alun_pull_ok", "1");
-      location.reload();
-      return;
+  async function iniciar() {
+    overlayCarga(true);
+    try {
+      await cargarDesdeServidor();
+      repintar();
+      overlayCarga(false);
+      banner("✓ Datos cargados del servidor", "ok");
+      empujarTodo(false); // empuja lo creado durante la carga (si hubo)
+    } catch (e) {
+      console.warn("[sync] carga inicial:", e.message);
+      overlayCarga(true, "⚠ No se pudo conectar con el servidor. Reintentando…");
+      setTimeout(iniciar, 8000);
     }
-    empujarTodo(false);
+  }
+
+  // Aviso al salir si quedan cambios sin confirmar por el servidor.
+  window.addEventListener("beforeunload", (ev) => {
+    if (hayPendientes()) { ev.preventDefault(); ev.returnValue = "Hay cambios sin guardar en el servidor."; }
   });
 
-  A.sync = { ahora: () => empujarTodo(true), pull };
-  console.info("[sync] Sincronización bidireccional con el VPS activa (VPS manda).");
+  window.addEventListener("online", () => empujarTodo(false));
+
+  A.auth.sesion().then((u) => { if (u) iniciar(); });
+
+  A.sync = { ahora: () => empujarTodo(true), recargar: iniciar, hayPendientes };
+  console.info("[sync] Almacén en el VPS activo — sin almacenamiento local.");
 })();

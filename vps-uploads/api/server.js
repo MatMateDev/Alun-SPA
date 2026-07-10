@@ -34,6 +34,8 @@ if (!SESSION_SECRET) { console.error("Falta SESSION_SECRET en el entorno."); pro
 
 admin.initializeApp({ credential: admin.credential.applicationDefault() });
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Sin este handler, un error de un cliente idle del pool tumba el proceso Node.
+pool.on("error", (e) => console.error("pg pool:", e.message));
 
 const app = express();
 app.use(cors({ origin: ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : false }));
@@ -81,7 +83,8 @@ const storage = multer.diskStorage({
     cb(null, Date.now() + "_" + seguro);
   },
 });
-const upload = multer({ storage, limits: { fileSize: MAX_FILE_MB * 1024 * 1024 } });
+// MAX_FILE_MB <= 0 → SIN límite de tamaño por archivo (limitado solo por el disco del VPS).
+const upload = multer({ storage, limits: MAX_FILE_MB > 0 ? { fileSize: MAX_FILE_MB * 1024 * 1024 } : {} });
 
 // Sube un documento y lo referencia al cliente (carpeta clientes/{clienteId}/{carpeta}).
 app.post("/api/upload", requiereSesion, (req, res) => {
@@ -128,7 +131,11 @@ app.get("/api/file", (req, res) => {
 //  cuenta, archivo (retención UAF) y alertas descartadas. Un documento por
 //  fila (jsonb), igual forma que usaba el front con Firestore.
 // ============================================================================
-const COLECCIONES = ["clientes", "registros", "facturas", "compras", "cuenta", "archivo", "alertas_descartadas"];
+const COLECCIONES = [
+  "clientes", "registros", "facturas", "compras", "cuenta",
+  "movimientos", "proveedores", "cuentas_bancarias", "cartola", "configuracion",
+  "archivo", "alertas_descartadas",
+];
 // Folio autoritativo del servidor (evita choques entre distintos equipos/usuarios).
 const FOLIOS = {
   clientes: { prefijo: "CL-", pad: 5 },
@@ -136,7 +143,29 @@ const FOLIOS = {
   registros: { prefijo: "OP-", pad: 6 },
   facturas: { prefijo: "FAC-", pad: 5 },
   cuenta: { prefijo: "AC-", pad: 6 },
+  movimientos: { prefijo: "MOV-", pad: 6 },
 };
+
+// Crea las tablas si no existen (permite desplegar sin migraciones manuales) y
+// espera a que Postgres esté listo (docker compose no garantiza el orden real).
+async function initDb() {
+  for (let i = 0; i < 30; i++) {
+    try {
+      for (const t of COLECCIONES) {
+        await pool.query("create table if not exists " + t +
+          " (id text primary key, data jsonb not null, updated_at timestamptz not null default now())");
+      }
+      await pool.query("create table if not exists counters (entity text primary key, n integer not null default 0)");
+      console.log("Base de datos lista (" + COLECCIONES.length + " colecciones).");
+      return;
+    } catch (e) {
+      console.log("Esperando a la base de datos…", e.message);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  console.error("La base de datos no respondió a tiempo.");
+  process.exit(1);
+}
 
 async function siguienteFolio(client, entity) {
   const { rows } = await client.query(
@@ -245,4 +274,4 @@ app.delete("/api/data/:col/:id", requiereSesion, async (req, res) => {
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-app.listen(PORT, () => console.log("Alun backend API escuchando en :" + PORT));
+initDb().then(() => app.listen(PORT, () => console.log("Alun backend API escuchando en :" + PORT)));

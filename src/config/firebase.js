@@ -67,10 +67,12 @@
     if (file.data && typeof file.data === "string") {
       blob = await (await fetch(file.data)).blob(); // dataURL base64 -> Blob
     }
+    // Los campos van ANTES del archivo: multer procesa el destino cuando llega
+    // el archivo y necesita clienteId/carpeta ya disponibles en req.body.
     const fd = new FormData();
-    fd.append("file", blob, nombre);
     fd.append("clienteId", clienteId);
     fd.append("carpeta", subcarpeta);
+    fd.append("file", blob, nombre);
     const resp = await fetch(API_URL + "/api/upload", { method: "POST", headers, body: fd });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
