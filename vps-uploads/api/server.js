@@ -176,6 +176,12 @@ app.put("/api/data/:col/:id", requiereSesion, async (req, res) => {
     const data = Object.assign({}, req.body, { id });
     if (existente.rows.length) {
       const prev = existente.rows[0].data || {};
+      // Lápida: un registro eliminado NUNCA se revive con la copia local de
+      // otro equipo. Se responde el estado eliminado para que el front la quite.
+      if (prev.eliminado) {
+        await client.query("commit");
+        return res.json({ ok: true, ignorado: true, eliminado: true, data: prev });
+      }
       if (prev.folio) data.folio = prev.folio;
       if (prev.actualizadoEn && data.actualizadoEn && data.actualizadoEn < prev.actualizadoEn) {
         await client.query("commit");
@@ -199,15 +205,41 @@ app.put("/api/data/:col/:id", requiereSesion, async (req, res) => {
   }
 });
 
+// Eliminación con LÁPIDA (no se borra la fila): el registro queda marcado
+// eliminado=true. Así (1) se cumple la retención UAF de 5 años y (2) ningún
+// otro equipo puede "revivirlo" re-subiendo su copia local antigua.
 app.delete("/api/data/:col/:id", requiereSesion, async (req, res) => {
   const col = req.params.col;
   const id = String(req.params.id || "");
   if (!COLECCIONES.includes(col) || !idSeguro(id)) return res.status(400).json({ error: "Colección o id inválidos." });
+  // Misma transacción y lock que el PUT: un PUT concurrente no puede pisar la
+  // lápida. Y si la fila aún no existe (delete antes de que llegue el create),
+  // la lápida se crea igual — el PUT rezagado será rechazado.
+  const client = await pool.connect();
   try {
-    await pool.query("delete from " + col + " where id = $1", [id]);
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtext($1))", [col + ":" + id]);
+    const { rows } = await client.query("select data from " + col + " where id = $1", [id]);
+    const base = rows.length ? rows[0].data : { id };
+    const data = Object.assign({}, base, {
+      id,
+      eliminado: true,
+      eliminadoEn: new Date().toISOString(),
+      eliminadoPor: req.usuario,
+      actualizadoEn: new Date().toISOString(),
+    });
+    await client.query(
+      "insert into " + col + " (id, data, updated_at) values ($1, $2, now()) " +
+      "on conflict (id) do update set data = $2, updated_at = now()",
+      [id, data]
+    );
+    await client.query("commit");
     res.json({ ok: true });
   } catch (e) {
+    try { await client.query("rollback"); } catch (_) {}
     res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
   }
 });
 

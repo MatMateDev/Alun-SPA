@@ -75,6 +75,7 @@
     const estilos = {
       info: "background:#E8ECE3;color:#3E4D5C;",
       ok:   "background:#EAF3DE;color:#27500A;",
+      warn: "background:#FAEEDA;color:#633806;",
       err:  "background:#FCEBEB;color:#791F1F;",
     };
     bannerEl.style.cssText = "position:fixed;bottom:16px;right:16px;z-index:9999;padding:10px 14px;" +
@@ -82,7 +83,7 @@
       "display:block;max-width:340px;" + (estilos[tipo] || estilos.info);
     bannerEl.textContent = texto;
     bannerTipo = tipo;
-    if (tipo !== "err") bannerTimer = setTimeout(() => { bannerEl.style.display = "none"; bannerTipo = null; }, 2500);
+    if (tipo !== "err") bannerTimer = setTimeout(() => { bannerEl.style.display = "none"; bannerTipo = null; }, tipo === "warn" ? 6000 : 2500);
   }
 
   // Reintento automático mientras queden cambios sin llegar al servidor.
@@ -138,8 +139,20 @@
         const st = { fallos: 0 };
         const clienteId = item.clienteId || (entry.col === "clientes" ? item.id : "_sin_cliente");
         const limpio = await procesarArchivos(clon, clienteId, entry.carpeta, st);
-        const guardado = await A.dataPut(entry.col, item.id, limpio);
-        if (!guardado) throw new Error("sin sesión activa");
+        const r = await A.dataPut(entry.col, item.id, limpio);
+        if (!r || !r.data) throw new Error("sin respuesta del servidor");
+        // Lápida en el servidor: este registro fue eliminado — quitar la copia local
+        // en vez de revivirlo (la eliminación de un usuario vale para todos).
+        if (r.eliminado) {
+          try {
+            const fresco = JSON.parse(localStorage.getItem(entry.key) || "[]");
+            localStorage.setItem(entry.key, JSON.stringify(fresco.filter((x) => !x || x.id !== item.id)));
+          } catch (e) {}
+          delete synced[item.id];
+          banner("⚠ Un registro fue eliminado por otro usuario; ese cambio no se guardó y desaparecerá al recargar.", "warn");
+          continue;
+        }
+        const guardado = r.data;
         if (st.fallos > 0) { errores += st.fallos; continue; } // sigue "sucio": reintentará subir los adjuntos
         // Folio autoritativo del servidor: reflejarlo en la copia local.
         if (guardado.folio && guardado.folio !== item.folio) {
@@ -248,6 +261,42 @@
     };
   });
 
+  // Envuelve eliminarTodo() (zona de peligro): la limpieza masiva también se
+  // propaga al servidor como lápidas — si no, el pull restauraría todo.
+  (function () {
+    const original = window.eliminarTodo;
+    if (typeof original !== "function") return;
+    window.eliminarTodo = function () {
+      const antes = {};
+      MAP.forEach((e) => {
+        try { antes[e.col] = (JSON.parse(localStorage.getItem(e.key) || "[]") || []).map((x) => x && x.id).filter(Boolean); }
+        catch (_) { antes[e.col] = []; }
+      });
+      const r = original.apply(this, arguments);
+      const q = leerColaDel();
+      let n = 0;
+      MAP.forEach((e) => {
+        let ahora;
+        try { ahora = new Set((JSON.parse(localStorage.getItem(e.key) || "[]") || []).map((x) => x && x.id)); }
+        catch (_) { ahora = new Set(); }
+        const synced = leerSynced(e.col);
+        (antes[e.col] || []).forEach((id) => {
+          if (!ahora.has(id)) { q.push({ col: e.col, id: String(id), en: new Date().toISOString() }); delete synced[id]; n++; }
+        });
+        guardarSynced(e.col, synced);
+      });
+      if (n > 0) {
+        guardarColaDel(q);
+        banner("Eliminando " + n + " registro(s) también en el servidor…", "info");
+        procesarEliminaciones().then((fallidas) => {
+          if (fallidas > 0) { banner("⚠ Algunas eliminaciones se aplicarán al reconectar.", "err"); programarReintento(); }
+          else banner("✓ Eliminado también en el servidor", "ok");
+        });
+      }
+      return r;
+    };
+  })();
+
   // BAJADA (pull): trae del VPS lo creado desde cualquier equipo/usuario y lo
   // fusiona con lo local por id (gana la versión más reciente). No revive lo
   // que está pendiente de eliminar. Marca lo bajado como sincronizado.
@@ -268,6 +317,13 @@
           const id = remoto.id;
           if (!id) return;
           if (pendientesDel.some((p) => p.col === entry.col && p.id === String(id))) return; // no revivir eliminados
+          // Lápida: el registro fue eliminado por algún usuario — quitar la copia
+          // local si existe y no volver a mostrarlo nunca.
+          if (remoto.eliminado) {
+            if (porId[id]) { delete porId[id]; huboCambios = true; }
+            delete synced[id];
+            return;
+          }
           const loc = porId[id];
           const rMod = remoto.actualizadoEn || remoto.creadoEn || "";
           const lMod = loc ? (loc.actualizadoEn || loc.creadoEn || "") : null;

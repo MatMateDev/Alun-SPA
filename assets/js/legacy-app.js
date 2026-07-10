@@ -194,7 +194,7 @@ function guardarCliente(){
   if(!nombre||!rut){ alert('El nombre/razón social y el RUT son obligatorios.'); return; }
   const prev = editandoClienteId ? clientePorId(editandoClienteId)||{} : {};
   const cli = {
-    id: editandoClienteId || ('c'+Date.now()),
+    id: editandoClienteId || ('c'+Date.now()+Math.floor(Math.random()*999)),
     folio: prev.folio || nuevoFolioCliente(),
     creadoEn: prev.creadoEn || new Date().toISOString(),
     actualizadoEn: new Date().toISOString(),
@@ -491,7 +491,7 @@ function guardarRegistro(){
     if(sel==='__nueva__'){
       const num=v('nf-numero');
       if(!num){ alert('Ingrese el N° de la factura común, o elija una existente, o cambie a factura propia.'); return; }
-      const g={ id:'f'+Date.now(), folio:nuevoFolioFactura(), numero:num, fecha:v('nf-fecha'), clienteId:clienteSeleccionadoId, archivo:archivosTx.nuevaFactura||null, creadoEn:new Date().toISOString(), usuario:usuarioActual() };
+      const g={ id:'f'+Date.now()+Math.floor(Math.random()*999), folio:nuevoFolioFactura(), numero:num, fecha:v('nf-fecha'), clienteId:clienteSeleccionadoId, archivo:archivosTx.nuevaFactura||null, creadoEn:new Date().toISOString(), usuario:usuarioActual() };
       facturas.push(g); guardarFacturas(); facturaGrupoId=g.id;
     } else if(sel){ facturaGrupoId=sel; }
   }
@@ -509,7 +509,7 @@ function guardarRegistro(){
   const prevRos = editandoId ? (registros.find(r=>r.id===editandoId)||{}).ros : null;
 
   const reg = {
-    id: editandoId || Date.now().toString(),
+    id: editandoId || ('op'+Date.now()+Math.floor(Math.random()*999)),
     folio: prevFolio || nuevoFolio(),
     creadoEn: prevCreado || new Date().toISOString(),
     actualizadoEn: new Date().toISOString(),
@@ -702,7 +702,7 @@ function eliminarRegistro(id){ const r=registros.find(x=>x.id===id); if(!r) retu
 function poblarFacCliente(){ const sel=document.getElementById('fac-cliente'); if(!sel) return; sel.innerHTML='<option value="">— Sin cliente específico —</option>'+clientes.map(c=>'<option value="'+c.id+'">'+esc(c.nombre)+' ('+esc(c.folio)+')</option>').join(''); }
 function guardarFacturaManual(){
   const num=v('fac-numero'); if(!num){ alert('Ingrese el N° de factura.'); return; }
-  const g={ id:'f'+Date.now(), folio:nuevoFolioFactura(), numero:num, fecha:v('fac-fecha'), clienteId:v('fac-cliente')||null, archivo:archivoFacManual||null, creadoEn:new Date().toISOString(), usuario:usuarioActual() };
+  const g={ id:'f'+Date.now()+Math.floor(Math.random()*999), folio:nuevoFolioFactura(), numero:num, fecha:v('fac-fecha'), clienteId:v('fac-cliente')||null, archivo:archivoFacManual||null, creadoEn:new Date().toISOString(), usuario:usuarioActual() };
   facturas.push(g); guardarFacturas(); guardarConfigData();
   archivoFacManual=null; document.getElementById('fac-numero').value=''; document.getElementById('fac-fecha').value=''; document.getElementById('list-fac').innerHTML='';
   renderFacturas(); actualizarDashboard();
@@ -1076,7 +1076,7 @@ function poblarSelectsCompra(){
 function crearCompra(){
   const cli=v('co-cliente'); if(!cli){ alert('Seleccione el cliente.'); return; }
   const t=tipoOperacionActual;
-  let c={ id:'co'+Date.now(), folio:nuevoFolioCompra(), creadoEn:new Date().toISOString(), usuario:usuarioActual(), clienteId:cli, fecha:v('co-fecha')||hoy(), valuta:parseInt(v('co-valuta'))||0, observaciones:v('co-obs'), tipoOperacion:t, comision:0, comisionTipo:'monto', abonos:[] };
+  let c={ id:'co'+Date.now()+Math.floor(Math.random()*999), folio:nuevoFolioCompra(), creadoEn:new Date().toISOString(), usuario:usuarioActual(), clienteId:cli, fecha:v('co-fecha')||hoy(), valuta:parseInt(v('co-valuta'))||0, observaciones:v('co-obs'), tipoOperacion:t, comision:0, comisionTipo:'monto', abonos:[] };
   if(t==='compra_div'){
     const monto=parseFloat(v('cd-monto'))||0; if(monto<=0){ alert('Ingrese el monto de divisa que compra el cliente.'); return; }
     c.monedaCompra=v('cd-moneda'); c.montoCompra=monto; c.monedaPago='CLP'; c.tipoCambio=parseFloat(v('cd-tccli'))||0; c.tcProveedor=parseFloat(v('cd-tcprov'))||0; c.contraparte=v('cd-contra');
@@ -1159,7 +1159,7 @@ function registrarAbono(id){
   const c=compraPorId(id); if(!c) return;
   const monto=parseFloat(v('ab-monto'))||0; if(monto<=0){ alert('Ingrese el monto del abono.'); return; }
   if(!c.abonos) c.abonos=[];
-  c.abonos.push({ id:'ab'+Date.now(), fecha:v('ab-fecha')||hoy(), monto:monto, medio:v('ab-medio'), observacion:v('ab-obs'), comprobante:archivoAbono, usuario:usuarioActual() });
+  c.abonos.push({ id:'ab'+Date.now()+Math.floor(Math.random()*999), fecha:v('ab-fecha')||hoy(), monto:monto, medio:v('ab-medio'), observacion:v('ab-obs'), comprobante:archivoAbono, usuario:usuarioActual() });
   guardarCompras(); archivoAbono=null; renderCompras(); renderSaldos(); actualizarDashboard(); verCompra(id);
 }
 function quitarAbono(id,i){ const c=compraPorId(id); if(!c) return; if(!confirm('¿Eliminar este abono?')) return; c.abonos.splice(i,1); guardarCompras(); renderCompras(); renderSaldos(); verCompra(id); }
@@ -1173,7 +1173,7 @@ function aplicarSaldoAFavor(destId){
   if(amt>favor+0.001){ alert('El monto excede el saldo a favor disponible ('+fmtNum(favor,2)+' '+src.monedaPago+').'); return; }
   if(src.monedaPago!==dest.monedaPago){ alert('Las monedas de pago no coinciden ('+src.monedaPago+' vs '+dest.monedaPago+').'); return; }
   if(!src.abonos) src.abonos=[]; if(!dest.abonos) dest.abonos=[];
-  src.abonos.push({ id:'ab'+Date.now(), fecha:hoy(), monto:-amt, medio:'Saldo a favor aplicado a '+dest.folio, tipo:'retiro_credito' });
+  src.abonos.push({ id:'ab'+Date.now()+Math.floor(Math.random()*999), fecha:hoy(), monto:-amt, medio:'Saldo a favor aplicado a '+dest.folio, tipo:'retiro_credito' });
   dest.abonos.push({ id:'ab'+(Date.now()+1), fecha:hoy(), monto:amt, medio:'Saldo a favor de '+src.folio, tipo:'credito_aplicado' });
   guardarCompras(); renderCompras(); renderSaldos(); actualizarDashboard(); verCompra(destId);
 }
@@ -1353,7 +1353,7 @@ function registrarAbonoCuenta(){
   const tipo=v('cu-tipo'), moneda=v('cu-moneda');
   if(tipo==='retiro'){ const disp=saldoCuentaCliente(cli,moneda); if(monto>disp+0.001){ alert('El retiro ('+fmtNum(monto,2)+' '+moneda+') excede el saldo en cuenta disponible ('+fmtNum(disp,2)+' '+moneda+').'); return; } }
   const cbId=v('cu-banco'); const cb=cuentaBancariaPorId(cbId);
-  cuenta.unshift({ id:'cu'+Date.now(), folio:nuevoFolioCuenta(), creadoEn:new Date().toISOString(), usuario:usuarioActual(), clienteId:cli, fecha:v('cu-fecha')||hoy(), tipo:tipo, monto:monto, moneda:moneda, medio:v('cu-medio'), bancoCuentaId:cbId||null, bancoTxt: cb?etiquetaCB(cb):'', observacion:v('cu-obs'), comprobante:archivoCuenta });
+  cuenta.unshift({ id:'cu'+Date.now()+Math.floor(Math.random()*999), folio:nuevoFolioCuenta(), creadoEn:new Date().toISOString(), usuario:usuarioActual(), clienteId:cli, fecha:v('cu-fecha')||hoy(), tipo:tipo, monto:monto, moneda:moneda, medio:v('cu-medio'), bancoCuentaId:cbId||null, bancoTxt: cb?etiquetaCB(cb):'', observacion:v('cu-obs'), comprobante:archivoCuenta });
   guardarCuenta(); guardarConfigData(); archivoCuenta=null;
   ['cu-monto','cu-medio','cu-obs'].forEach(id=>{const e=document.getElementById(id); if(e)e.value='';});
   const cf=document.getElementById('cu-file'); if(cf) cf.innerHTML=''; document.getElementById('cu-fecha').value=hoy();
@@ -1403,9 +1403,9 @@ function aplicarSaldoCuenta(compraId){
   const amt=parseFloat(v('cuenta-aplicar-monto'))||0;
   if(amt<=0){ alert('Ingrese el monto a aplicar desde la cuenta.'); return; }
   if(amt>disp+0.001){ alert('El monto excede el saldo en cuenta disponible ('+fmtNum(disp,2)+' '+c.monedaPago+').'); return; }
-  cuenta.unshift({ id:'cu'+Date.now(), folio:nuevoFolioCuenta(), creadoEn:new Date().toISOString(), clienteId:c.clienteId, fecha:hoy(), tipo:'aplicado', monto:amt, moneda:c.monedaPago, medio:'Aplicado a operación', refCompra:c.folio, observacion:'' });
+  cuenta.unshift({ id:'cu'+Date.now()+Math.floor(Math.random()*999), folio:nuevoFolioCuenta(), creadoEn:new Date().toISOString(), clienteId:c.clienteId, fecha:hoy(), tipo:'aplicado', monto:amt, moneda:c.monedaPago, medio:'Aplicado a operación', refCompra:c.folio, observacion:'' });
   if(!c.abonos) c.abonos=[];
-  c.abonos.push({ id:'ab'+Date.now(), fecha:hoy(), monto:amt, medio:'Saldo en cuenta del cliente', tipo:'cuenta_aplicada' });
+  c.abonos.push({ id:'ab'+Date.now()+Math.floor(Math.random()*999), fecha:hoy(), monto:amt, medio:'Saldo en cuenta del cliente', tipo:'cuenta_aplicada' });
   guardarCuenta(); guardarCompras(); guardarConfigData();
   renderCompras(); renderSaldos(); renderCuenta(); actualizarDashboard(); verCompra(compraId);
 }
@@ -1440,9 +1440,9 @@ function pasarSaldoAFavorACuenta(compraId){
   const fav=saldoAFavorCompra(c);
   if(fav<=0.001){ alert('Esta operación no tiene saldo a favor.'); return; }
   if(!confirm('¿Pasar el saldo a favor de '+fmtNum(fav,2)+' '+c.monedaPago+' a la cuenta del cliente?')) return;
-  cuenta.unshift({ id:'cu'+Date.now(), folio:nuevoFolioCuenta(), creadoEn:new Date().toISOString(), clienteId:c.clienteId, fecha:hoy(), tipo:'deposito', monto:fav, moneda:c.monedaPago, medio:'Excedente de operación', bancoCuentaId:null, bancoTxt:'', observacion:'Excedente pagado en '+c.folio });
+  cuenta.unshift({ id:'cu'+Date.now()+Math.floor(Math.random()*999), folio:nuevoFolioCuenta(), creadoEn:new Date().toISOString(), clienteId:c.clienteId, fecha:hoy(), tipo:'deposito', monto:fav, moneda:c.monedaPago, medio:'Excedente de operación', bancoCuentaId:null, bancoTxt:'', observacion:'Excedente pagado en '+c.folio });
   if(!c.abonos) c.abonos=[];
-  c.abonos.push({ id:'ab'+Date.now(), fecha:hoy(), monto:-fav, medio:'Excedente pasado a la cuenta del cliente', tipo:'a_cuenta' });
+  c.abonos.push({ id:'ab'+Date.now()+Math.floor(Math.random()*999), fecha:hoy(), monto:-fav, medio:'Excedente pasado a la cuenta del cliente', tipo:'a_cuenta' });
   guardarCuenta(); guardarCompras(); guardarConfigData();
   renderCompras(); renderSaldos(); renderCuenta(); actualizarDashboard(); verCompra(compraId);
   alert('Saldo a favor de '+fmtNum(fav,2)+' '+c.monedaPago+' pasado a la cuenta del cliente.');

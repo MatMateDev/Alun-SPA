@@ -35,7 +35,7 @@
         const payload = { ...cliente, id: cliente.id || "c" + Date.now() };
         delete payload.folio;
         payload.creadoEn = new Date().toISOString();
-        const guardado = await A.dataPut(COL, payload.id, payload);
+        const r = await A.dataPut(COL, payload.id, payload); const guardado = r && r.data;
         return { data: guardado, error: null };
       } catch (error) { return { data: null, error }; }
     },
@@ -45,7 +45,7 @@
         const payload = { ...cambios, id };
         delete payload.folio;
         payload.actualizadoEn = new Date().toISOString();
-        const guardado = await A.dataPut(COL, id, payload);
+        const r = await A.dataPut(COL, id, payload); const guardado = r && r.data;
         return { data: guardado, error: null };
       } catch (error) { return { data: null, error }; }
     },

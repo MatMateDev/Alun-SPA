@@ -101,8 +101,10 @@
     return data.items || [];
   };
 
-  // Crea o actualiza un documento. El servidor asigna el folio si es nuevo y
-  // rechaza copias más antiguas que la versión almacenada (ignorado:true).
+  // Crea o actualiza un documento. El servidor asigna el folio si es nuevo,
+  // rechaza copias más antiguas que la versión almacenada (ignorado:true) y
+  // no permite revivir registros eliminados (eliminado:true).
+  // Devuelve el cuerpo completo: { ok, data, ignorado?, eliminado? }.
   A.dataPut = async function (col, id, obj) {
     const headers = await authHeader();
     if (!headers) throw new Error("Sesión no disponible todavía.");
@@ -112,7 +114,7 @@
       body: JSON.stringify(obj),
     });
     if (!resp.ok) throw new Error("No se pudo guardar en el servidor (" + resp.status + ").");
-    return (await resp.json()).data;
+    return await resp.json();
   };
 
   A.dataDelete = async function (col, id) {
