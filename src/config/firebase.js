@@ -94,17 +94,18 @@
   // Lista todos los documentos de una colección (clientes, registros, ...).
   A.dataList = async function (col) {
     const headers = await authHeader();
-    if (!headers) return [];
+    if (!headers) throw new Error("Sesión no disponible todavía.");
     const resp = await fetch(API_URL + "/api/data/" + col, { headers });
-    if (!resp.ok) return [];
+    if (!resp.ok) throw new Error("No se pudo leer del servidor (" + resp.status + ").");
     const data = await resp.json();
     return data.items || [];
   };
 
-  // Crea o actualiza un documento. El servidor asigna el folio si es nuevo.
+  // Crea o actualiza un documento. El servidor asigna el folio si es nuevo y
+  // rechaza copias más antiguas que la versión almacenada (ignorado:true).
   A.dataPut = async function (col, id, obj) {
     const headers = await authHeader();
-    if (!headers) return null;
+    if (!headers) throw new Error("Sesión no disponible todavía.");
     const resp = await fetch(API_URL + "/api/data/" + col + "/" + encodeURIComponent(id), {
       method: "PUT",
       headers: Object.assign({ "Content-Type": "application/json" }, headers),

@@ -37,7 +37,15 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const app = express();
 app.use(cors({ origin: ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : false }));
-app.use(express.json({ limit: "15mb" }));
+app.use(express.json({ limit: "50mb" }));
+
+// Log de cada petición (visible con: docker compose logs -f api).
+app.use((req, res, next) => {
+  res.on("finish", () => {
+    console.log(new Date().toISOString(), req.method, req.originalUrl.split("?")[0], res.statusCode);
+  });
+  next();
+});
 
 const idSeguro = (s) => typeof s === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(s);
 
@@ -130,8 +138,8 @@ const FOLIOS = {
   cuenta: { prefijo: "AC-", pad: 6 },
 };
 
-async function siguienteFolio(entity) {
-  const { rows } = await pool.query(
+async function siguienteFolio(client, entity) {
+  const { rows } = await client.query(
     "insert into counters(entity, n) values ($1, 1) on conflict (entity) do update set n = counters.n + 1 returning n",
     [entity]
   );
@@ -151,29 +159,43 @@ app.get("/api/data/:col", requiereSesion, async (req, res) => {
   }
 });
 
-// Crea o actualiza un documento. Si es nuevo y la colección tiene folio
-// correlativo, el servidor lo asigna de forma atómica (ignora el que
-// mande el front); si ya existe, conserva el folio original.
+// Crea o actualiza un documento. Reglas del servidor (fuente de verdad):
+//  - Folio: si es nuevo, se asigna atómicamente (lock por registro evita
+//    correlativos duplicados/quemados); si ya existe, se conserva el original.
+//  - Versiones (LWW): una copia con actualizadoEn MÁS ANTIGUO que lo almacenado
+//    no pisa los datos — se responde la versión vigente con ignorado:true.
 app.put("/api/data/:col/:id", requiereSesion, async (req, res) => {
   const col = req.params.col;
   const id = String(req.params.id || "");
   if (!COLECCIONES.includes(col) || !idSeguro(id)) return res.status(400).json({ error: "Colección o id inválidos." });
+  const client = await pool.connect();
   try {
-    const existente = await pool.query("select data from " + col + " where id = $1", [id]);
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtext($1))", [col + ":" + id]);
+    const existente = await client.query("select data from " + col + " where id = $1", [id]);
     const data = Object.assign({}, req.body, { id });
     if (existente.rows.length) {
-      if (existente.rows[0].data && existente.rows[0].data.folio) data.folio = existente.rows[0].data.folio;
+      const prev = existente.rows[0].data || {};
+      if (prev.folio) data.folio = prev.folio;
+      if (prev.actualizadoEn && data.actualizadoEn && data.actualizadoEn < prev.actualizadoEn) {
+        await client.query("commit");
+        return res.json({ ok: true, ignorado: true, data: prev });
+      }
     } else if (FOLIOS[col]) {
-      data.folio = await siguienteFolio(col);
+      data.folio = await siguienteFolio(client, col);
     }
-    await pool.query(
+    await client.query(
       "insert into " + col + " (id, data, updated_at) values ($1, $2, now()) " +
       "on conflict (id) do update set data = $2, updated_at = now()",
       [id, data]
     );
+    await client.query("commit");
     res.json({ ok: true, data });
   } catch (e) {
+    try { await client.query("rollback"); } catch (_) {}
     res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
   }
 });
 
